@@ -10,6 +10,9 @@ AI-powered Databricks App for migrating legacy ETL workloads (SSIS, SQL Server, 
 4. **Score** conversion quality across multiple dimensions (syntax, patterns, optimization, completeness)
 5. **Promote** validated conversions through dev → QA → prod environments
 
+<img width="2816" height="1536" alt="conversion-forge" src="https://github.com/user-attachments/assets/d06da02e-9472-4d64-831c-a5583fd149be" />
+
+
 ## Architecture
 
 ```
