@@ -1,0 +1,301 @@
+# Conversion Control Tower — Databricks Asset Bundle
+# Deploy: databricks bundle deploy --target dev --var warehouse_id=<YOUR_WAREHOUSE_ID>
+
+bundle:
+  name: conversion-control-tower
+
+variables:
+  # Unity Catalog configuration
+  catalog:
+    description: "Unity Catalog name for tracking tables and volumes"
+    default: "dev_conversion_tracker"
+
+  # SQL Warehouse for queries (REQUIRED — pass via CLI or set in target)
+  warehouse_id:
+    description: "SQL Warehouse ID for data access"
+
+  # Cluster for notebook jobs (optional — uses ephemeral job clusters if not set)
+  cluster_id:
+    description: "Cluster ID for conversion jobs (optional)"
+    default: ""
+
+workspace:
+  root_path: /Workspace/Users/${workspace.current_user.userName}/conversion-control-tower
+
+resources:
+  # =========================================================================
+  # DATABRICKS APP
+  # =========================================================================
+  apps:
+    conversion_control_tower:
+      name: "conversion-control-tower"
+      description: "AI-powered code conversion control tower for migrating legacy ETL to Databricks"
+      source_code_path: ./app
+
+      permissions:
+        - user_name: ${workspace.current_user.userName}
+          level: CAN_MANAGE
+
+  # =========================================================================
+  # UNITY CATALOG SCHEMAS
+  # =========================================================================
+  schemas:
+    conversion_tracker:
+      catalog_name: ${var.catalog}
+      name: conversion_tracker
+      comment: "Schema for conversion tracking tables and metadata"
+
+    source_data:
+      catalog_name: ${var.catalog}
+      name: source_data
+      comment: "Schema for source/test data used in validation"
+
+  # =========================================================================
+  # UNITY CATALOG VOLUME
+  # =========================================================================
+  volumes:
+    conversion_files:
+      catalog_name: ${var.catalog}
+      schema_name: conversion_tracker
+      name: files
+      volume_type: MANAGED
+      comment: "Storage for uploaded source files and converted outputs"
+
+  # =========================================================================
+  # CONVERSION RUNNER JOB
+  # =========================================================================
+  jobs:
+    conversion_runner:
+      name: "[Converter] Conversion Runner"
+      description: "AI-powered code conversion job — triggered by the Control Tower app"
+
+      tasks:
+        - task_key: convert
+          notebook_task:
+            notebook_path: ./app/databricks/notebooks/conversion_runner.py
+            base_parameters:
+              job_id: "{{job.parameters.job_id}}"
+              source_path: "{{job.parameters.source_path}}"
+              catalog: ${var.catalog}
+              schema: "conversion_tracker"
+              output_path: "{{job.parameters.output_path}}"
+              ai_model: "{{job.parameters.ai_model}}"
+              source_type: "{{job.parameters.source_type}}"
+              output_format: "{{job.parameters.output_format}}"
+
+          new_cluster:
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "Standard_DS3_v2"
+            num_workers: 1
+            spark_conf:
+              spark.databricks.delta.optimizeWrite.enabled: "true"
+
+      parameters:
+        - name: job_id
+          default: ""
+        - name: source_path
+          default: ""
+        - name: output_path
+          default: ""
+        - name: ai_model
+          default: "databricks-claude-sonnet-4"
+        - name: source_type
+          default: "auto"
+        - name: output_format
+          default: "pyspark"
+
+      tags:
+        source: "conversion_control_tower"
+        type: "conversion_runner"
+
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+
+      max_concurrent_runs: 10
+
+    # =========================================================================
+    # SETUP JOB — Creates tracking tables (run once)
+    # =========================================================================
+    setup_tracking_tables:
+      name: "[Converter] Setup Tracking Tables"
+      description: "One-time setup job to create Unity Catalog tracking tables"
+
+      tasks:
+        - task_key: create_tables
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            file:
+              path: ./app/databricks/ddl/02_create_tracking_tables.sql
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+
+      tags:
+        source: "conversion_control_tower"
+        type: "setup"
+
+    # =========================================================================
+    # ORIGINAL OUTPUT SIMULATOR JOB
+    # =========================================================================
+    original_simulator:
+      name: "[Converter] Original Output Simulator"
+      description: "Simulates expected output from original source logic for comparison"
+
+      tasks:
+        - task_key: simulate
+          timeout_seconds: 1800
+          notebook_task:
+            notebook_path: ./app/databricks/notebooks/original_simulator.py
+            base_parameters:
+              conversion_job_id: "{{job.parameters.conversion_job_id}}"
+              source_file_path: "{{job.parameters.source_file_path}}"
+              output_path: "{{job.parameters.output_path}}"
+              source_data_output_path: "{{job.parameters.source_data_output_path}}"
+              validation_table: "{{job.parameters.validation_table}}"
+
+          new_cluster:
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "Standard_DS3_v2"
+            num_workers: 0
+            spark_conf:
+              spark.databricks.cluster.profile: "singleNode"
+              spark.master: "local[*]"
+              spark.databricks.delta.optimizeWrite.enabled: "true"
+            custom_tags:
+              ResourceClass: "SingleNode"
+
+      parameters:
+        - name: conversion_job_id
+          default: ""
+        - name: source_file_path
+          default: ""
+        - name: output_path
+          default: ""
+        - name: source_data_output_path
+          default: ""
+        - name: validation_table
+          default: ""
+
+      tags:
+        source: "conversion_control_tower"
+        type: "original_simulator"
+
+      max_concurrent_runs: 10
+
+    # =========================================================================
+    # CONVERTED CODE RUNNER JOB
+    # =========================================================================
+    converted_runner:
+      name: "[Converter] Converted Code Runner"
+      description: "Executes converted Databricks code against test data for comparison"
+
+      tasks:
+        - task_key: run_converted
+          notebook_task:
+            notebook_path: ./app/databricks/notebooks/converted_runner.py
+            base_parameters:
+              conversion_job_id: "{{job.parameters.conversion_job_id}}"
+              source_data_path: "{{job.parameters.source_data_path}}"
+              converted_notebook_path: "{{job.parameters.converted_notebook_path}}"
+              output_path: "{{job.parameters.output_path}}"
+
+          new_cluster:
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "Standard_DS3_v2"
+            num_workers: 0
+            spark_conf:
+              spark.databricks.cluster.profile: "singleNode"
+              spark.master: "local[*]"
+              spark.databricks.delta.optimizeWrite.enabled: "true"
+            custom_tags:
+              ResourceClass: "SingleNode"
+
+      parameters:
+        - name: conversion_job_id
+          default: ""
+        - name: source_data_path
+          default: ""
+        - name: converted_notebook_path
+          default: ""
+        - name: output_path
+          default: ""
+
+      tags:
+        source: "conversion_control_tower"
+        type: "converted_runner"
+
+      max_concurrent_runs: 10
+
+    # =========================================================================
+    # DATA COMPARISON JOB
+    # =========================================================================
+    data_comparator:
+      name: "[Converter] Output Data Comparator"
+      description: "Compares expected vs actual output and generates validation report"
+
+      tasks:
+        - task_key: compare
+          notebook_task:
+            notebook_path: ./app/databricks/notebooks/data_comparator.py
+            base_parameters:
+              conversion_job_id: "{{job.parameters.conversion_job_id}}"
+              expected_path: "{{job.parameters.expected_path}}"
+              actual_path: "{{job.parameters.actual_path}}"
+              output_path: "{{job.parameters.output_path}}"
+
+          new_cluster:
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "Standard_DS3_v2"
+            num_workers: 0
+            spark_conf:
+              spark.databricks.cluster.profile: "singleNode"
+              spark.master: "local[*]"
+              spark.databricks.delta.optimizeWrite.enabled: "true"
+            custom_tags:
+              ResourceClass: "SingleNode"
+
+      parameters:
+        - name: conversion_job_id
+          default: ""
+        - name: expected_path
+          default: ""
+        - name: actual_path
+          default: ""
+        - name: output_path
+          default: ""
+
+      tags:
+        source: "conversion_control_tower"
+        type: "data_comparator"
+
+      max_concurrent_runs: 10
+
+# =========================================================================
+# TARGET ENVIRONMENTS
+# =========================================================================
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      catalog: "dev_conversion_tracker"
+
+    # Set your workspace host here or use DATABRICKS_HOST env var
+    # workspace:
+    #   host: https://your-workspace.azuredatabricks.net
+
+  qa:
+    mode: development
+    variables:
+      catalog: "qa_conversion_tracker"
+
+  prod:
+    mode: production
+    variables:
+      catalog: "prod_conversion_tracker"
+
+    # Production: run as service principal
+    run_as:
+      service_principal_name: "conversion-app-sp"

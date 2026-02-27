@@ -1,0 +1,296 @@
+# SSIS Expression Language to Spark SQL Mappings
+# Converts SSIS expressions to equivalent Spark SQL/Python
+
+version: "1.0"
+
+# String Functions
+string_functions:
+  LEN: LENGTH
+  LTRIM: LTRIM
+  RTRIM: RTRIM
+  TRIM: TRIM
+  UPPER: UPPER
+  LOWER: LOWER
+  SUBSTRING: SUBSTRING
+  REPLACE: REPLACE
+  REPLICATE: REPEAT
+  REVERSE: REVERSE
+  LEFT: LEFT
+  RIGHT: RIGHT
+  # FINDSTRING is 1-based in SSIS, LOCATE is also 1-based in Spark
+  FINDSTRING: LOCATE
+
+# Date/Time Functions
+date_functions:
+  GETDATE: current_timestamp
+  GETUTCDATE: current_timestamp  # Spark uses UTC by default
+  SYSDATETIME: current_timestamp
+
+  # DATEADD requires syntax transformation
+  # SSIS: DATEADD("day", 1, date)
+  # Spark: DATE_ADD(date, 1) or date + INTERVAL 1 DAY
+  DATEADD:
+    pattern: 'DATEADD\("(\w+)",\s*(\d+),\s*(.+)\)'
+    replacement: "DATE_ADD({2}, {1})"
+    notes: "Only works for day intervals, others need INTERVAL syntax"
+
+  # DATEDIFF
+  # SSIS: DATEDIFF("day", start, end)
+  # Spark: DATEDIFF(end, start)
+  DATEDIFF:
+    pattern: 'DATEDIFF\("day",\s*(.+),\s*(.+)\)'
+    replacement: "DATEDIFF({1}, {0})"
+    notes: "Note parameter order is reversed"
+
+  # DATEPART
+  # SSIS: DATEPART("year", date)
+  # Spark: EXTRACT(YEAR FROM date) or YEAR(date)
+  DATEPART:
+    pattern: 'DATEPART\("(\w+)",\s*(.+)\)'
+    replacement: "EXTRACT({0} FROM {1})"
+
+  DAY: DAYOFMONTH
+  MONTH: MONTH
+  YEAR: YEAR
+  HOUR: HOUR
+  MINUTE: MINUTE
+  SECOND: SECOND
+
+# Null Handling Functions
+null_functions:
+  ISNULL: COALESCE
+  REPLACENULL: COALESCE
+
+# Math Functions
+math_functions:
+  ABS: ABS
+  CEILING: CEIL
+  FLOOR: FLOOR
+  ROUND: ROUND
+  POWER: POWER
+  SQRT: SQRT
+  EXP: EXP
+  LOG: LOG
+  LOG10: LOG10
+  SIGN: SIGN
+
+# Type Casting
+# SSIS uses (DT_TYPE) syntax, Spark uses CAST()
+type_casting:
+  # String types
+  "(DT_STR,{length},{code_page})":
+    replacement: "CAST({expr} AS STRING)"
+    notes: "Length and code page ignored in Spark"
+
+  "(DT_WSTR,{length})":
+    replacement: "CAST({expr} AS STRING)"
+    notes: "Unicode string maps to STRING"
+
+  # Integer types
+  "(DT_I1)":
+    replacement: "CAST({expr} AS TINYINT)"
+
+  "(DT_I2)":
+    replacement: "CAST({expr} AS SMALLINT)"
+
+  "(DT_I4)":
+    replacement: "CAST({expr} AS INT)"
+
+  "(DT_I8)":
+    replacement: "CAST({expr} AS BIGINT)"
+
+  "(DT_UI1)":
+    replacement: "CAST({expr} AS SMALLINT)"
+    notes: "No unsigned types in Spark"
+
+  "(DT_UI2)":
+    replacement: "CAST({expr} AS INT)"
+
+  "(DT_UI4)":
+    replacement: "CAST({expr} AS BIGINT)"
+
+  # Floating point
+  "(DT_R4)":
+    replacement: "CAST({expr} AS FLOAT)"
+
+  "(DT_R8)":
+    replacement: "CAST({expr} AS DOUBLE)"
+
+  # Decimal
+  "(DT_DECIMAL,{scale})":
+    replacement: "CAST({expr} AS DECIMAL(38,{scale}))"
+
+  "(DT_NUMERIC,{precision},{scale})":
+    replacement: "CAST({expr} AS DECIMAL({precision},{scale}))"
+
+  "(DT_CY)":
+    replacement: "CAST({expr} AS DECIMAL(19,4))"
+    notes: "Currency type maps to DECIMAL(19,4)"
+
+  # Date/Time types
+  "(DT_DBTIMESTAMP)":
+    replacement: "CAST({expr} AS TIMESTAMP)"
+
+  "(DT_DBTIMESTAMP2,{scale})":
+    replacement: "CAST({expr} AS TIMESTAMP)"
+
+  "(DT_DBDATE)":
+    replacement: "CAST({expr} AS DATE)"
+
+  "(DT_DBTIME)":
+    replacement: "CAST({expr} AS STRING)"
+    notes: "No TIME type in Spark, use STRING"
+
+  "(DT_DBTIMESTAMPOFFSET,{scale})":
+    replacement: "CAST({expr} AS TIMESTAMP)"
+    notes: "Timezone offset lost in conversion"
+
+  # Boolean
+  "(DT_BOOL)":
+    replacement: "CAST({expr} AS BOOLEAN)"
+
+  # Binary
+  "(DT_BYTES,{length})":
+    replacement: "CAST({expr} AS BINARY)"
+
+  # GUID
+  "(DT_GUID)":
+    replacement: "CAST({expr} AS STRING)"
+    notes: "GUID stored as STRING in Spark"
+
+# Operators
+operators:
+  # Comparison (same in both)
+  "==": "="
+  "!=": "!="
+  "<": "<"
+  ">": ">"
+  "<=": "<="
+  ">=": ">="
+
+  # Logical
+  "&&": "AND"
+  "||": "OR"
+  "!": "NOT"
+
+  # Arithmetic (same in both)
+  "+": "+"
+  "-": "-"
+  "*": "*"
+  "/": "/"
+  "%": "%"
+
+  # String concatenation
+  # SSIS uses + for strings, Spark uses CONCAT()
+  string_concat:
+    pattern: '(.+)\s*\+\s*(.+)'
+    replacement: "CONCAT({0}, {1})"
+    notes: "Only for string context"
+
+# Ternary/Conditional
+# SSIS: condition ? true_value : false_value
+# Spark: CASE WHEN condition THEN true_value ELSE false_value END
+conditional:
+  ternary:
+    pattern: '(.+)\s*\?\s*(.+)\s*:\s*(.+)'
+    replacement: "CASE WHEN {0} THEN {1} ELSE {2} END"
+
+  # Nested ternary
+  nested_ternary:
+    notes: "Flatten to CASE WHEN ... WHEN ... ELSE ... END"
+
+# System Variables
+# SSIS: @[System::VariableName]
+# Databricks: Job parameters or widgets
+system_variables:
+  "@[System::StartTime]":
+    replacement: "current_timestamp()"
+    notes: "Or use job start time from context"
+
+  "@[System::PackageName]":
+    replacement: "'{package_name}'"
+    notes: "Inject as string literal"
+
+  "@[System::TaskName]":
+    replacement: "'{task_name}'"
+    notes: "Inject as string literal"
+
+  "@[System::ExecutionInstanceGUID]":
+    replacement: "uuid()"
+    notes: "Generate new UUID"
+
+  "@[System::MachineName]":
+    replacement: "current_catalog()"
+    notes: "Approximation - use catalog name"
+
+  "@[System::UserName]":
+    replacement: "current_user()"
+
+  "@[System::ContainerStartTime]":
+    replacement: "current_timestamp()"
+
+  "@[System::ErrorCode]":
+    replacement: "NULL"
+    notes: "Handle in try/except block"
+
+  "@[System::ErrorDescription]":
+    replacement: "NULL"
+    notes: "Handle in try/except block"
+
+  "@[System::SourceName]":
+    replacement: "'{source_name}'"
+
+# User Variables
+# SSIS: @[User::VariableName]
+# Databricks: dbutils.widgets.get() or job parameters
+user_variables:
+  pattern: '@\[User::(\w+)\]'
+  replacement_widget: "dbutils.widgets.get('{0}')"
+  replacement_param: "spark.conf.get('spark.databricks.job.param.{0}')"
+  notes: "Choose based on whether running interactively or as job"
+
+# Special Expressions
+special_expressions:
+  # NULL check
+  # SSIS: ISNULL(column)
+  # Spark: column IS NULL (for check) or COALESCE(column, default) (for replace)
+  isnull_check:
+    pattern: 'ISNULL\((.+)\)'
+    replacement_check: "{0} IS NULL"
+    replacement_coalesce: "COALESCE({0}, {default})"
+
+  # Empty string to NULL
+  # SSIS: LEN(TRIM(column)) == 0 ? NULL(DT_WSTR, 50) : column
+  # Spark: NULLIF(TRIM(column), '')
+  empty_to_null:
+    pattern: 'LEN\(TRIM\((.+)\)\)\s*==\s*0\s*\?\s*NULL.+:\s*(.+)'
+    replacement: "NULLIF(TRIM({0}), '')"
+
+# Expression Examples (for reference)
+examples:
+  # Profit calculation
+  ssis: "NetAmount - (Quantity * StandardCost)"
+  spark: "NetAmount - (Quantity * StandardCost)"
+  notes: "Arithmetic same in both"
+
+  # Profit margin with null handling
+  ssis: "NetAmount == 0 ? 0 : ((NetAmount - (Quantity * StandardCost)) / NetAmount) * 100"
+  spark: "CASE WHEN NetAmount = 0 THEN 0 ELSE ((NetAmount - (Quantity * StandardCost)) / NetAmount) * 100 END"
+
+  # Category assignment
+  ssis: 'NetAmount < 100 ? "Small" : (NetAmount < 1000 ? "Medium" : (NetAmount < 10000 ? "Large" : "Enterprise"))'
+  spark: |
+    CASE
+      WHEN NetAmount < 100 THEN 'Small'
+      WHEN NetAmount < 1000 THEN 'Medium'
+      WHEN NetAmount < 10000 THEN 'Large'
+      ELSE 'Enterprise'
+    END
+
+  # Date range SQL with variables
+  ssis: |
+    "SELECT * FROM Sales WHERE SaleDate >= '" + (DT_WSTR, 23) @[User::ExtractStartDate] +
+    "' AND SaleDate < '" + (DT_WSTR, 23) @[User::ExtractEndDate] + "'"
+  spark: |
+    f"SELECT * FROM Sales WHERE SaleDate >= '{extract_start_date}' AND SaleDate < '{extract_end_date}'"
+  notes: "Use parameterized queries in production"

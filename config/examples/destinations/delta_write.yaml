@@ -1,0 +1,66 @@
+# OLE DB Destination to Delta Lake Write
+name: delta_write
+description: Convert SSIS OLE DB Destination to Delta Lake write operation
+tags: [destination, delta, write, fact, table]
+
+input:
+  type: ssis_component
+  component_type: OLEDBDestination
+  content: |
+    <component componentClassID="Microsoft.OLEDBDestination" name="OLE_DST - Fact Sales">
+      <properties>
+        <property name="OpenRowset">[fact].[Sales]</property>
+        <property name="AccessMode">3</property>
+        <property name="FastLoadOptions">TABLOCK,CHECK_CONSTRAINTS</property>
+        <property name="FastLoadKeepIdentity">False</property>
+        <property name="FastLoadMaxInsertCommitSize">2147483647</property>
+      </properties>
+    </component>
+
+output:
+  type: pyspark
+  content: |
+    # Write to Delta Lake fact table
+    target_table = f"{catalog}.{schema}.fact_sales"
+
+    # Option 1: Append mode (for incremental loads)
+    df_valid.write \
+        .format("delta") \
+        .mode("append") \
+        .option("mergeSchema", "true") \
+        .saveAsTable(target_table)
+
+    # Option 2: Merge/Upsert for idempotent loads
+    from delta.tables import DeltaTable
+
+    if DeltaTable.isDeltaTable(spark, target_table):
+        delta_table = DeltaTable.forName(spark, target_table)
+        delta_table.alias("t").merge(
+            df_valid.alias("s"),
+            "t.sale_id = s.sale_id"  # Business key
+        ).whenMatchedUpdateAll() \
+         .whenNotMatchedInsertAll() \
+         .execute()
+    else:
+        # First load - create table
+        df_valid.write \
+            .format("delta") \
+            .mode("overwrite") \
+            .option("overwriteSchema", "true") \
+            .partitionBy("date_sk")  # Partition by date for fact tables \
+            .saveAsTable(target_table)
+
+    # Post-write optimization
+    spark.sql(f"OPTIMIZE {target_table}")
+
+notes: |
+  SSIS FastLoad options mapped to Delta:
+  - TABLOCK → Delta handles locking automatically
+  - CHECK_CONSTRAINTS → Use Delta constraints or validate before write
+  - FastLoadMaxInsertCommitSize → Not needed, Delta handles batching
+
+  Best practices:
+  - Use append mode for daily incremental loads
+  - Use merge for idempotent/rerunnable loads
+  - Partition fact tables by date key
+  - Run OPTIMIZE after large writes

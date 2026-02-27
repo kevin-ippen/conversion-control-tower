@@ -1,0 +1,1266 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+  DTS:refId="Package"
+  DTS:CreationDate="2024-01-15T10:30:00"
+  DTS:CreatorComputerName="ETLSERVER01"
+  DTS:CreatorName="DataEngineer"
+  DTS:Description="Sales Data ETL - Extracts daily sales, enriches with customer and product data, handles SCD Type 2"
+  DTS:DTSID="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+  DTS:ExecutableType="Microsoft.Package"
+  DTS:LastModifiedProductVersion="16.0.5467.0"
+  DTS:LocaleID="1033"
+  DTS:ObjectName="SalesDataETL"
+  DTS:PackageType="5"
+  DTS:VersionBuild="15"
+  DTS:VersionGUID="{12345678-90AB-CDEF-1234-567890ABCDEF}">
+  
+  <!-- ============================================== -->
+  <!-- CONNECTION MANAGERS                            -->
+  <!-- ============================================== -->
+  <DTS:ConnectionManagers>
+    <!-- Source Database Connection -->
+    <DTS:ConnectionManager
+      DTS:refId="Package.ConnectionManagers[SourceDB_OLTP]"
+      DTS:CreationName="OLEDB"
+      DTS:DTSID="{11111111-1111-1111-1111-111111111111}"
+      DTS:ObjectName="SourceDB_OLTP">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+          DTS:ConnectRetryCount="1"
+          DTS:ConnectRetryInterval="5"
+          DTS:ConnectionString="Data Source=SQLSERVER01;Initial Catalog=SalesOLTP;Provider=SQLNCLI11.1;Integrated Security=SSPI;Auto Translate=False;">
+        </DTS:ConnectionManager>
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+    
+    <!-- Destination Data Warehouse Connection -->
+    <DTS:ConnectionManager
+      DTS:refId="Package.ConnectionManagers[DestDW_Sales]"
+      DTS:CreationName="OLEDB"
+      DTS:DTSID="{22222222-2222-2222-2222-222222222222}"
+      DTS:ObjectName="DestDW_Sales">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+          DTS:ConnectRetryCount="1"
+          DTS:ConnectRetryInterval="5"
+          DTS:ConnectionString="Data Source=DWSERVER01;Initial Catalog=SalesDW;Provider=SQLNCLI11.1;Integrated Security=SSPI;Auto Translate=False;">
+        </DTS:ConnectionManager>
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+    
+    <!-- Flat File Connection for Error Logging -->
+    <DTS:ConnectionManager
+      DTS:refId="Package.ConnectionManagers[ErrorLogFile]"
+      DTS:CreationName="FLATFILE"
+      DTS:DTSID="{33333333-3333-3333-3333-333333333333}"
+      DTS:ObjectName="ErrorLogFile">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+          DTS:Format="Delimited"
+          DTS:LocaleID="1033"
+          DTS:HeaderRowDelimiter="_x000D__x000A_"
+          DTS:ColumnNamesInFirstDataRow="True"
+          DTS:RowDelimiter=""
+          DTS:TextQualifier="_x003C_none_x003E_"
+          DTS:CodePage="1252"
+          DTS:ConnectionString="C:\ETL\Logs\SalesETL_Errors_@[System::StartTime].csv">
+          <DTS:FlatFileColumns>
+            <DTS:FlatFileColumn DTS:ColumnType="Delimited" DTS:ColumnDelimiter="_x002C_" DTS:DataType="129" DTS:MaximumWidth="50" DTS:ObjectName="ErrorCode" />
+            <DTS:FlatFileColumn DTS:ColumnType="Delimited" DTS:ColumnDelimiter="_x002C_" DTS:DataType="129" DTS:MaximumWidth="500" DTS:ObjectName="ErrorDescription" />
+            <DTS:FlatFileColumn DTS:ColumnType="Delimited" DTS:ColumnDelimiter="_x002C_" DTS:DataType="129" DTS:MaximumWidth="100" DTS:ObjectName="SourceTable" />
+            <DTS:FlatFileColumn DTS:ColumnType="Delimited" DTS:ColumnDelimiter="_x000D__x000A_" DTS:DataType="129" DTS:MaximumWidth="50" DTS:ObjectName="RecordID" />
+          </DTS:FlatFileColumns>
+        </DTS:ConnectionManager>
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <!-- ============================================== -->
+  <!-- PACKAGE VARIABLES                              -->
+  <!-- ============================================== -->
+  <DTS:Variables>
+    <DTS:Variable
+      DTS:CreationName=""
+      DTS:DTSID="{VAR00001-0000-0000-0000-000000000001}"
+      DTS:IncludeInDebugDump="2345"
+      DTS:Namespace="User"
+      DTS:ObjectName="ExtractStartDate">
+      <DTS:VariableValue DTS:DataType="7">2024-01-01T00:00:00</DTS:VariableValue>
+    </DTS:Variable>
+    
+    <DTS:Variable
+      DTS:CreationName=""
+      DTS:DTSID="{VAR00002-0000-0000-0000-000000000002}"
+      DTS:IncludeInDebugDump="2345"
+      DTS:Namespace="User"
+      DTS:ObjectName="ExtractEndDate">
+      <DTS:VariableValue DTS:DataType="7">2024-01-02T00:00:00</DTS:VariableValue>
+    </DTS:Variable>
+    
+    <DTS:Variable
+      DTS:CreationName=""
+      DTS:DTSID="{VAR00003-0000-0000-0000-000000000003}"
+      DTS:IncludeInDebugDump="2345"
+      DTS:Namespace="User"
+      DTS:ObjectName="RowsExtracted">
+      <DTS:VariableValue DTS:DataType="3">0</DTS:VariableValue>
+    </DTS:Variable>
+    
+    <DTS:Variable
+      DTS:CreationName=""
+      DTS:DTSID="{VAR00004-0000-0000-0000-000000000004}"
+      DTS:IncludeInDebugDump="2345"
+      DTS:Namespace="User"
+      DTS:ObjectName="RowsInserted">
+      <DTS:VariableValue DTS:DataType="3">0</DTS:VariableValue>
+    </DTS:Variable>
+    
+    <DTS:Variable
+      DTS:CreationName=""
+      DTS:DTSID="{VAR00005-0000-0000-0000-000000000005}"
+      DTS:IncludeInDebugDump="2345"
+      DTS:Namespace="User"
+      DTS:ObjectName="RowsUpdated">
+      <DTS:VariableValue DTS:DataType="3">0</DTS:VariableValue>
+    </DTS:Variable>
+    
+    <DTS:Variable
+      DTS:CreationName=""
+      DTS:DTSID="{VAR00006-0000-0000-0000-000000000006}"
+      DTS:IncludeInDebugDump="2345"
+      DTS:Namespace="User"
+      DTS:ObjectName="ErrorCount">
+      <DTS:VariableValue DTS:DataType="3">0</DTS:VariableValue>
+    </DTS:Variable>
+    
+    <DTS:Variable
+      DTS:CreationName=""
+      DTS:DTSID="{VAR00007-0000-0000-0000-000000000007}"
+      DTS:IncludeInDebugDump="6789"
+      DTS:EvaluateAsExpression="True"
+      DTS:Expression="&quot;SELECT SaleID, CustomerID, ProductID, SaleDate, Quantity, UnitPrice, DiscountPercent, StoreID, SalesRepID, CreatedDate, ModifiedDate FROM dbo.Sales WHERE SaleDate &gt;= '&quot; + (DT_WSTR, 23) @[User::ExtractStartDate] + &quot;' AND SaleDate &lt; '&quot; + (DT_WSTR, 23) @[User::ExtractEndDate] + &quot;'&quot;"
+      DTS:Namespace="User"
+      DTS:ObjectName="SQL_ExtractSales">
+      <DTS:VariableValue DTS:DataType="8"></DTS:VariableValue>
+    </DTS:Variable>
+    
+    <DTS:Variable
+      DTS:CreationName=""
+      DTS:DTSID="{VAR00008-0000-0000-0000-000000000008}"
+      DTS:IncludeInDebugDump="2345"
+      DTS:Namespace="User"
+      DTS:ObjectName="BatchID">
+      <DTS:VariableValue DTS:DataType="3">0</DTS:VariableValue>
+    </DTS:Variable>
+  </DTS:Variables>
+
+  <!-- ============================================== -->
+  <!-- CONTROL FLOW                                   -->
+  <!-- ============================================== -->
+  <DTS:Executables>
+    
+    <!-- TASK 1: Log Package Start -->
+    <DTS:Executable
+      DTS:refId="Package\Log Package Start"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{TASK0001-0000-0000-0000-000000000001}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:ObjectName="Log Package Start">
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{22222222-2222-2222-2222-222222222222}"
+          SQLTask:SqlStatementSource="INSERT INTO dbo.ETL_BatchLog (PackageName, BatchStartTime, Status)
+OUTPUT INSERTED.BatchID
+VALUES ('SalesDataETL', GETDATE(), 'Running');"
+          SQLTask:ResultType="ResultSetType_SingleRow"
+          xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask">
+          <SQLTask:ResultBinding
+            SQLTask:ResultName="0"
+            SQLTask:DtsVariableName="User::BatchID"/>
+        </SQLTask:SqlTaskData>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+    <!-- TASK 2: Truncate Staging Tables -->
+    <DTS:Executable
+      DTS:refId="Package\Truncate Staging Tables"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{TASK0002-0000-0000-0000-000000000002}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:ObjectName="Truncate Staging Tables">
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{22222222-2222-2222-2222-222222222222}"
+          SQLTask:SqlStatementSource="TRUNCATE TABLE staging.Sales;
+TRUNCATE TABLE staging.Sales_Errors;
+TRUNCATE TABLE staging.Customer_Updates;
+TRUNCATE TABLE staging.Product_Updates;"
+          xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask">
+        </SQLTask:SqlTaskData>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+    <!-- TASK 3: Get Last Successful Extract Date -->
+    <DTS:Executable
+      DTS:refId="Package\Get Last Extract Date"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{TASK0003-0000-0000-0000-000000000003}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:ObjectName="Get Last Extract Date">
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{22222222-2222-2222-2222-222222222222}"
+          SQLTask:SqlStatementSource="SELECT 
+    ISNULL(MAX(LastExtractDate), '1900-01-01') AS ExtractStartDate,
+    CAST(GETDATE() AS DATE) AS ExtractEndDate
+FROM dbo.ETL_WatermarkTable 
+WHERE TableName = 'Sales' AND Status = 'Success';"
+          SQLTask:ResultType="ResultSetType_SingleRow"
+          xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask">
+          <SQLTask:ResultBinding
+            SQLTask:ResultName="ExtractStartDate"
+            SQLTask:DtsVariableName="User::ExtractStartDate"/>
+          <SQLTask:ResultBinding
+            SQLTask:ResultName="ExtractEndDate"
+            SQLTask:DtsVariableName="User::ExtractEndDate"/>
+        </SQLTask:SqlTaskData>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+    <!-- TASK 4: SEQUENCE CONTAINER - Main ETL Process -->
+    <DTS:Executable
+      DTS:refId="Package\SEQ - Main ETL Process"
+      DTS:CreationName="STOCK:SEQUENCE"
+      DTS:DTSID="{SEQ00001-0000-0000-0000-000000000001}"
+      DTS:ExecutableType="STOCK:SEQUENCE"
+      DTS:ObjectName="SEQ - Main ETL Process">
+      
+      <DTS:Executables>
+        
+        <!-- DATA FLOW TASK: Extract and Transform Sales Data -->
+        <DTS:Executable
+          DTS:refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales"
+          DTS:CreationName="Microsoft.Pipeline"
+          DTS:DTSID="{DFT00001-0000-0000-0000-000000000001}"
+          DTS:ExecutableType="Microsoft.Pipeline"
+          DTS:ObjectName="DFT - Extract Transform Sales">
+          
+          <DTS:ObjectData>
+            <pipeline version="1">
+              
+              <!-- ======================================== -->
+              <!-- DATA FLOW COMPONENTS                     -->
+              <!-- ======================================== -->
+              <components>
+                
+                <!-- SOURCE: Extract Sales from OLTP -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_SRC - Sales"
+                  componentClassID="Microsoft.OLEDBSource"
+                  name="OLE_SRC - Sales"
+                  version="7">
+                  <properties>
+                    <property name="CommandTimeout">0</property>
+                    <property name="OpenRowset"></property>
+                    <property name="SqlCommand" dataType="System.String">SELECT 
+    s.SaleID,
+    s.CustomerID,
+    s.ProductID,
+    s.SaleDate,
+    s.Quantity,
+    s.UnitPrice,
+    s.DiscountPercent,
+    s.StoreID,
+    s.SalesRepID,
+    s.CreatedDate,
+    s.ModifiedDate,
+    s.Quantity * s.UnitPrice AS GrossAmount,
+    s.Quantity * s.UnitPrice * (1 - ISNULL(s.DiscountPercent, 0) / 100.0) AS NetAmount
+FROM dbo.Sales s
+WHERE s.SaleDate &gt;= ? AND s.SaleDate &lt; ?</property>
+                    <property name="AccessMode">2</property>
+                    <property name="ParameterMapping">"@[User::ExtractStartDate]",Input,0;"@[User::ExtractEndDate]",Input,1;</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_SRC - Sales.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[SourceDB_OLTP]"
+                      name="OleDbConnection"/>
+                  </connections>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_SRC - Sales.Outputs[OLE DB Source Output]" name="OLE DB Source Output">
+                      <outputColumns>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[SaleID]" dataType="i4" name="SaleID"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[CustomerID]" dataType="i4" name="CustomerID"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[ProductID]" dataType="i4" name="ProductID"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[SaleDate]" dataType="dbTimeStamp" name="SaleDate"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[Quantity]" dataType="i4" name="Quantity"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[UnitPrice]" dataType="cy" name="UnitPrice"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[DiscountPercent]" dataType="r8" name="DiscountPercent"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[StoreID]" dataType="i4" name="StoreID"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[SalesRepID]" dataType="i4" name="SalesRepID"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[CreatedDate]" dataType="dbTimeStamp" name="CreatedDate"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[ModifiedDate]" dataType="dbTimeStamp" name="ModifiedDate"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[GrossAmount]" dataType="cy" name="GrossAmount"/>
+                        <outputColumn refId="OLE_SRC - Sales.Outputs[Output].Columns[NetAmount]" dataType="cy" name="NetAmount"/>
+                      </outputColumns>
+                    </output>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_SRC - Sales.Outputs[OLE DB Source Error Output]" name="OLE DB Source Error Output" isErrorOut="true"/>
+                  </outputs>
+                </component>
+
+                <!-- LOOKUP: Customer Dimension -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Customer Dim"
+                  componentClassID="Microsoft.Lookup"
+                  name="LKP - Customer Dim"
+                  version="6">
+                  <properties>
+                    <property name="CacheType">0</property>
+                    <property name="NoMatchBehavior">1</property>
+                    <property name="SqlCommand">SELECT 
+    CustomerSK,
+    CustomerID,
+    CustomerName,
+    CustomerSegment,
+    Region,
+    Country,
+    IsCurrent
+FROM dim.Customer
+WHERE IsCurrent = 1</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Customer Dim.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Customer Dim.Inputs[Lookup Input]" name="Lookup Input">
+                      <inputColumns>
+                        <inputColumn refId="LKP - Customer Dim.Inputs[Input].Columns[CustomerID]" cachedName="CustomerID" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[CustomerID]">
+                          <properties>
+                            <property name="JoinToReferenceColumn">CustomerID</property>
+                          </properties>
+                        </inputColumn>
+                      </inputColumns>
+                    </input>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Customer Dim.Outputs[Lookup Match Output]" name="Lookup Match Output">
+                      <outputColumns>
+                        <outputColumn refId="LKP - Customer Dim.Outputs[Output].Columns[CustomerSK]" dataType="i4" name="CustomerSK"/>
+                        <outputColumn refId="LKP - Customer Dim.Outputs[Output].Columns[CustomerName]" dataType="wstr" length="100" name="CustomerName"/>
+                        <outputColumn refId="LKP - Customer Dim.Outputs[Output].Columns[CustomerSegment]" dataType="wstr" length="50" name="CustomerSegment"/>
+                        <outputColumn refId="LKP - Customer Dim.Outputs[Output].Columns[Region]" dataType="wstr" length="50" name="Region"/>
+                      </outputColumns>
+                    </output>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Customer Dim.Outputs[Lookup No Match Output]" name="Lookup No Match Output"/>
+                  </outputs>
+                </component>
+
+                <!-- LOOKUP: Product Dimension -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Product Dim"
+                  componentClassID="Microsoft.Lookup"
+                  name="LKP - Product Dim"
+                  version="6">
+                  <properties>
+                    <property name="CacheType">0</property>
+                    <property name="NoMatchBehavior">1</property>
+                    <property name="SqlCommand">SELECT 
+    ProductSK,
+    ProductID,
+    ProductName,
+    Category,
+    SubCategory,
+    Brand,
+    StandardCost,
+    IsCurrent
+FROM dim.Product
+WHERE IsCurrent = 1</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Product Dim.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Product Dim.Inputs[Lookup Input]" name="Lookup Input">
+                      <inputColumns>
+                        <inputColumn refId="LKP - Product Dim.Inputs[Input].Columns[ProductID]" cachedName="ProductID" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[ProductID]">
+                          <properties>
+                            <property name="JoinToReferenceColumn">ProductID</property>
+                          </properties>
+                        </inputColumn>
+                      </inputColumns>
+                    </input>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Product Dim.Outputs[Lookup Match Output]" name="Lookup Match Output">
+                      <outputColumns>
+                        <outputColumn refId="LKP - Product Dim.Outputs[Output].Columns[ProductSK]" dataType="i4" name="ProductSK"/>
+                        <outputColumn refId="LKP - Product Dim.Outputs[Output].Columns[ProductName]" dataType="wstr" length="200" name="ProductName"/>
+                        <outputColumn refId="LKP - Product Dim.Outputs[Output].Columns[Category]" dataType="wstr" length="100" name="Category"/>
+                        <outputColumn refId="LKP - Product Dim.Outputs[Output].Columns[SubCategory]" dataType="wstr" length="100" name="SubCategory"/>
+                        <outputColumn refId="LKP - Product Dim.Outputs[Output].Columns[StandardCost]" dataType="cy" name="StandardCost"/>
+                      </outputColumns>
+                    </output>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Product Dim.Outputs[Lookup No Match Output]" name="Lookup No Match Output"/>
+                  </outputs>
+                </component>
+
+                <!-- LOOKUP: Date Dimension -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Date Dim"
+                  componentClassID="Microsoft.Lookup"
+                  name="LKP - Date Dim"
+                  version="6">
+                  <properties>
+                    <property name="CacheType">1</property>
+                    <property name="NoMatchBehavior">0</property>
+                    <property name="SqlCommand">SELECT 
+    DateSK,
+    FullDate,
+    DayOfWeek,
+    DayName,
+    MonthNumber,
+    MonthName,
+    Quarter,
+    Year,
+    FiscalYear,
+    FiscalQuarter,
+    IsWeekend,
+    IsHoliday
+FROM dim.Date</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Date Dim.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Date Dim.Inputs[Lookup Input]" name="Lookup Input">
+                      <inputColumns>
+                        <inputColumn refId="LKP - Date Dim.Inputs[Input].Columns[SaleDate]" cachedName="SaleDate" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[SaleDate]">
+                          <properties>
+                            <property name="JoinToReferenceColumn">FullDate</property>
+                          </properties>
+                        </inputColumn>
+                      </inputColumns>
+                    </input>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Date Dim.Outputs[Lookup Match Output]" name="Lookup Match Output">
+                      <outputColumns>
+                        <outputColumn refId="LKP - Date Dim.Outputs[Output].Columns[DateSK]" dataType="i4" name="DateSK"/>
+                        <outputColumn refId="LKP - Date Dim.Outputs[Output].Columns[FiscalYear]" dataType="i4" name="FiscalYear"/>
+                        <outputColumn refId="LKP - Date Dim.Outputs[Output].Columns[FiscalQuarter]" dataType="i4" name="FiscalQuarter"/>
+                        <outputColumn refId="LKP - Date Dim.Outputs[Output].Columns[IsWeekend]" dataType="bool" name="IsWeekend"/>
+                        <outputColumn refId="LKP - Date Dim.Outputs[Output].Columns[IsHoliday]" dataType="bool" name="IsHoliday"/>
+                      </outputColumns>
+                    </output>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Date Dim.Outputs[Lookup No Match Output]" name="Lookup No Match Output"/>
+                  </outputs>
+                </component>
+
+                <!-- DERIVED COLUMN: Calculate Additional Metrics -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\DER - Calculate Metrics"
+                  componentClassID="Microsoft.DerivedColumn"
+                  name="DER - Calculate Metrics"
+                  version="2">
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\DER - Calculate Metrics.Inputs[Derived Column Input]" name="Derived Column Input"/>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\DER - Calculate Metrics.Outputs[Derived Column Output]" name="Derived Column Output">
+                      <outputColumns>
+                        <outputColumn 
+                          refId="DER - Calculate Metrics.Outputs[Output].Columns[ProfitAmount]" 
+                          dataType="cy" 
+                          name="ProfitAmount"
+                          expression="NetAmount - (Quantity * StandardCost)"/>
+                        <outputColumn 
+                          refId="DER - Calculate Metrics.Outputs[Output].Columns[ProfitMarginPct]" 
+                          dataType="r8" 
+                          name="ProfitMarginPct"
+                          expression="NetAmount == 0 ? 0 : ((NetAmount - (Quantity * StandardCost)) / NetAmount) * 100"/>
+                        <outputColumn 
+                          refId="DER - Calculate Metrics.Outputs[Output].Columns[SaleCategory]" 
+                          dataType="wstr"
+                          length="20"
+                          name="SaleCategory"
+                          expression="NetAmount &lt; 100 ? &quot;Small&quot; : (NetAmount &lt; 1000 ? &quot;Medium&quot; : (NetAmount &lt; 10000 ? &quot;Large&quot; : &quot;Enterprise&quot;))"/>
+                        <outputColumn 
+                          refId="DER - Calculate Metrics.Outputs[Output].Columns[ETL_LoadDate]" 
+                          dataType="dbTimeStamp" 
+                          name="ETL_LoadDate"
+                          expression="GETDATE()"/>
+                        <outputColumn 
+                          refId="DER - Calculate Metrics.Outputs[Output].Columns[ETL_BatchID]" 
+                          dataType="i4" 
+                          name="ETL_BatchID"
+                          expression="@[User::BatchID]"/>
+                      </outputColumns>
+                    </output>
+                  </outputs>
+                </component>
+
+                <!-- CONDITIONAL SPLIT: Route by Data Quality -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check"
+                  componentClassID="Microsoft.ConditionalSplit"
+                  name="CSPL - Data Quality Check"
+                  version="1">
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check.Inputs[Conditional Split Input]" name="Conditional Split Input"/>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check.Outputs[Valid Records]" 
+                      name="Valid Records"
+                      expression="!ISNULL(CustomerSK) &amp;&amp; !ISNULL(ProductSK) &amp;&amp; !ISNULL(DateSK) &amp;&amp; Quantity &gt; 0 &amp;&amp; NetAmount &gt;= 0"/>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check.Outputs[Invalid - Missing Customer]" 
+                      name="Invalid - Missing Customer"
+                      expression="ISNULL(CustomerSK)"/>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check.Outputs[Invalid - Missing Product]" 
+                      name="Invalid - Missing Product"
+                      expression="ISNULL(ProductSK)"/>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check.Outputs[Invalid - Bad Data]" 
+                      name="Invalid - Bad Data"
+                      expression="Quantity &lt;= 0 || NetAmount &lt; 0"/>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check.Outputs[Conditional Split Default Output]" 
+                      name="Conditional Split Default Output"/>
+                  </outputs>
+                </component>
+
+                <!-- MULTICAST: Split valid records for aggregation -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\MCST - Split Valid Records"
+                  componentClassID="Microsoft.Multicast"
+                  name="MCST - Split Valid Records"
+                  version="1">
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\MCST - Split Valid Records.Inputs[Multicast Input 1]" name="Multicast Input 1"/>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\MCST - Split Valid Records.Outputs[To Fact Table]" name="To Fact Table"/>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\MCST - Split Valid Records.Outputs[To Daily Aggregation]" name="To Daily Aggregation"/>
+                  </outputs>
+                </component>
+
+                <!-- AGGREGATE: Daily Sales Summary -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\AGG - Daily Sales Summary"
+                  componentClassID="Microsoft.Aggregate"
+                  name="AGG - Daily Sales Summary"
+                  version="5">
+                  <properties>
+                    <property name="KeyScale">0</property>
+                    <property name="Keys">0</property>
+                    <property name="CountDistinctScale">0</property>
+                    <property name="CountDistinctKeys">0</property>
+                    <property name="AutoExtendFactor">25</property>
+                  </properties>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\AGG - Daily Sales Summary.Inputs[Aggregate Input 1]" name="Aggregate Input 1">
+                      <inputColumns>
+                        <inputColumn refId="AGG - Daily Sales Summary.Inputs[Input].Columns[DateSK]" lineageId="LKP - Date Dim.Outputs[Output].Columns[DateSK]"/>
+                        <inputColumn refId="AGG - Daily Sales Summary.Inputs[Input].Columns[CustomerSK]" lineageId="LKP - Customer Dim.Outputs[Output].Columns[CustomerSK]"/>
+                        <inputColumn refId="AGG - Daily Sales Summary.Inputs[Input].Columns[ProductSK]" lineageId="LKP - Product Dim.Outputs[Output].Columns[ProductSK]"/>
+                        <inputColumn refId="AGG - Daily Sales Summary.Inputs[Input].Columns[NetAmount]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[NetAmount]"/>
+                        <inputColumn refId="AGG - Daily Sales Summary.Inputs[Input].Columns[Quantity]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[Quantity]"/>
+                        <inputColumn refId="AGG - Daily Sales Summary.Inputs[Input].Columns[SaleID]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[SaleID]"/>
+                      </inputColumns>
+                    </input>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\AGG - Daily Sales Summary.Outputs[Aggregate Output 1]" name="Aggregate Output 1">
+                      <outputColumns>
+                        <outputColumn refId="AGG - Daily Sales Summary.Outputs[Output].Columns[DateSK]" name="DateSK" dataType="i4" aggregationType="GroupBy"/>
+                        <outputColumn refId="AGG - Daily Sales Summary.Outputs[Output].Columns[TotalSalesAmount]" name="TotalSalesAmount" dataType="cy" aggregationType="Sum" sourceColumnLineageId="OLE_SRC - Sales.Outputs[Output].Columns[NetAmount]"/>
+                        <outputColumn refId="AGG - Daily Sales Summary.Outputs[Output].Columns[TotalQuantity]" name="TotalQuantity" dataType="i8" aggregationType="Sum" sourceColumnLineageId="OLE_SRC - Sales.Outputs[Output].Columns[Quantity]"/>
+                        <outputColumn refId="AGG - Daily Sales Summary.Outputs[Output].Columns[TransactionCount]" name="TransactionCount" dataType="i4" aggregationType="CountAll"/>
+                        <outputColumn refId="AGG - Daily Sales Summary.Outputs[Output].Columns[UniqueCustomers]" name="UniqueCustomers" dataType="i4" aggregationType="CountDistinct" sourceColumnLineageId="LKP - Customer Dim.Outputs[Output].Columns[CustomerSK]"/>
+                        <outputColumn refId="AGG - Daily Sales Summary.Outputs[Output].Columns[UniqueProducts]" name="UniqueProducts" dataType="i4" aggregationType="CountDistinct" sourceColumnLineageId="LKP - Product Dim.Outputs[Output].Columns[ProductSK]"/>
+                        <outputColumn refId="AGG - Daily Sales Summary.Outputs[Output].Columns[AvgTransactionValue]" name="AvgTransactionValue" dataType="cy" aggregationType="Avg" sourceColumnLineageId="OLE_SRC - Sales.Outputs[Output].Columns[NetAmount]"/>
+                      </outputColumns>
+                    </output>
+                  </outputs>
+                </component>
+
+                <!-- SORT: Before SCD Component -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\SORT - By SaleID"
+                  componentClassID="Microsoft.Sort"
+                  name="SORT - By SaleID"
+                  version="1">
+                  <properties>
+                    <property name="EliminateDuplicates">True</property>
+                    <property name="MaximumThreads">-1</property>
+                  </properties>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\SORT - By SaleID.Inputs[Sort Input]" name="Sort Input">
+                      <inputColumns>
+                        <inputColumn refId="SORT - By SaleID.Inputs[Input].Columns[SaleID]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[SaleID]" sortKeyPosition="1"/>
+                      </inputColumns>
+                    </input>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\SORT - By SaleID.Outputs[Sort Output]" name="Sort Output" isSorted="true"/>
+                  </outputs>
+                </component>
+
+                <!-- DESTINATION: Fact Sales Table -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_DST - Fact Sales"
+                  componentClassID="Microsoft.OLEDBDestination"
+                  name="OLE_DST - Fact Sales"
+                  version="4">
+                  <properties>
+                    <property name="CommandTimeout">0</property>
+                    <property name="OpenRowset">[fact].[Sales]</property>
+                    <property name="AccessMode">3</property>
+                    <property name="FastLoadOptions">TABLOCK,CHECK_CONSTRAINTS</property>
+                    <property name="FastLoadKeepIdentity">False</property>
+                    <property name="FastLoadKeepNulls">False</property>
+                    <property name="FastLoadMaxInsertCommitSize">2147483647</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_DST - Fact Sales.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_DST - Fact Sales.Inputs[OLE DB Destination Input]" name="OLE DB Destination Input">
+                      <inputColumns>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[SaleID]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[SaleID]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[SaleID]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[DateSK]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[DateSK]" lineageId="LKP - Date Dim.Outputs[Output].Columns[DateSK]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[CustomerSK]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[CustomerSK]" lineageId="LKP - Customer Dim.Outputs[Output].Columns[CustomerSK]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[ProductSK]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ProductSK]" lineageId="LKP - Product Dim.Outputs[Output].Columns[ProductSK]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[StoreID]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[StoreSK]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[StoreID]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[SalesRepID]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[SalesRepSK]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[SalesRepID]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[Quantity]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[Quantity]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[Quantity]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[UnitPrice]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[UnitPrice]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[UnitPrice]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[DiscountPercent]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[DiscountPercent]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[DiscountPercent]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[GrossAmount]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[GrossAmount]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[GrossAmount]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[NetAmount]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[NetAmount]" lineageId="OLE_SRC - Sales.Outputs[Output].Columns[NetAmount]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[ProfitAmount]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ProfitAmount]" lineageId="DER - Calculate Metrics.Outputs[Output].Columns[ProfitAmount]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[ProfitMarginPct]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ProfitMarginPct]" lineageId="DER - Calculate Metrics.Outputs[Output].Columns[ProfitMarginPct]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[SaleCategory]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[SaleCategory]" lineageId="DER - Calculate Metrics.Outputs[Output].Columns[SaleCategory]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[ETL_LoadDate]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ETL_LoadDate]" lineageId="DER - Calculate Metrics.Outputs[Output].Columns[ETL_LoadDate]"/>
+                        <inputColumn refId="OLE_DST - Fact Sales.Inputs[Input].Columns[ETL_BatchID]" externalMetadataColumnId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ETL_BatchID]" lineageId="DER - Calculate Metrics.Outputs[Output].Columns[ETL_BatchID]"/>
+                      </inputColumns>
+                      <externalMetadataColumns>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[SalesSK]" dataType="i4" name="SalesSK"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[SaleID]" dataType="i4" name="SaleID"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[DateSK]" dataType="i4" name="DateSK"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[CustomerSK]" dataType="i4" name="CustomerSK"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ProductSK]" dataType="i4" name="ProductSK"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[StoreSK]" dataType="i4" name="StoreSK"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[SalesRepSK]" dataType="i4" name="SalesRepSK"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[Quantity]" dataType="i4" name="Quantity"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[UnitPrice]" dataType="cy" name="UnitPrice"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[DiscountPercent]" dataType="r8" name="DiscountPercent"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[GrossAmount]" dataType="cy" name="GrossAmount"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[NetAmount]" dataType="cy" name="NetAmount"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ProfitAmount]" dataType="cy" name="ProfitAmount"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ProfitMarginPct]" dataType="r8" name="ProfitMarginPct"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[SaleCategory]" dataType="wstr" length="20" name="SaleCategory"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ETL_LoadDate]" dataType="dbTimeStamp" name="ETL_LoadDate"/>
+                        <externalMetadataColumn refId="OLE_DST - Fact Sales.Inputs[Input].ExternalColumns[ETL_BatchID]" dataType="i4" name="ETL_BatchID"/>
+                      </externalMetadataColumns>
+                    </input>
+                  </inputs>
+                </component>
+
+                <!-- DESTINATION: Daily Summary Table -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_DST - Daily Summary"
+                  componentClassID="Microsoft.OLEDBDestination"
+                  name="OLE_DST - Daily Summary"
+                  version="4">
+                  <properties>
+                    <property name="CommandTimeout">0</property>
+                    <property name="OpenRowset">[fact].[DailySalesSummary]</property>
+                    <property name="AccessMode">3</property>
+                    <property name="FastLoadOptions">TABLOCK,CHECK_CONSTRAINTS</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_DST - Daily Summary.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_DST - Daily Summary.Inputs[OLE DB Destination Input]" name="OLE DB Destination Input"/>
+                  </inputs>
+                </component>
+
+                <!-- UNION ALL: Combine Error Streams -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\UNAL - Combine Errors"
+                  componentClassID="Microsoft.UnionAll"
+                  name="UNAL - Combine Errors"
+                  version="1">
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\UNAL - Combine Errors.Inputs[Union All Input 1]" name="Union All Input 1"/>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\UNAL - Combine Errors.Inputs[Union All Input 2]" name="Union All Input 2"/>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\UNAL - Combine Errors.Inputs[Union All Input 3]" name="Union All Input 3"/>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\UNAL - Combine Errors.Outputs[Union All Output 1]" name="Union All Output 1"/>
+                  </outputs>
+                </component>
+
+                <!-- DESTINATION: Error Log Flat File -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\FF_DST - Error Log"
+                  componentClassID="Microsoft.FlatFileDestination"
+                  name="FF_DST - Error Log"
+                  version="4">
+                  <properties>
+                    <property name="Overwrite">False</property>
+                    <property name="Header"></property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\FF_DST - Error Log.Connections[FlatFileConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[ErrorLogFile]"
+                      name="FlatFileConnection"/>
+                  </connections>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\FF_DST - Error Log.Inputs[Flat File Destination Input]" name="Flat File Destination Input"/>
+                  </inputs>
+                </component>
+
+                <!-- ROW COUNT: Track Records -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\RC - Count Extracted"
+                  componentClassID="Microsoft.RowCount"
+                  name="RC - Count Extracted"
+                  version="1">
+                  <properties>
+                    <property name="VariableName">User::RowsExtracted</property>
+                  </properties>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\RC - Count Extracted.Inputs[Row Count Input 1]" name="Row Count Input 1"/>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\RC - Count Extracted.Outputs[Row Count Output 1]" name="Row Count Output 1"/>
+                  </outputs>
+                </component>
+
+              </components>
+
+              <!-- ======================================== -->
+              <!-- DATA FLOW PATHS                          -->
+              <!-- ======================================== -->
+              <paths>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[OLE DB Source Output]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\RC - Count Extracted.Inputs[Row Count Input 1]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_SRC - Sales.Outputs[OLE DB Source Output]"
+                  name="OLE DB Source Output"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Row Count to Customer Lookup]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Customer Dim.Inputs[Lookup Input]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\RC - Count Extracted.Outputs[Row Count Output 1]"
+                  name="Row Count to Customer Lookup"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Customer Match to Product Lookup]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Product Dim.Inputs[Lookup Input]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Customer Dim.Outputs[Lookup Match Output]"
+                  name="Customer Match to Product Lookup"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Product Match to Date Lookup]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Date Dim.Inputs[Lookup Input]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Product Dim.Outputs[Lookup Match Output]"
+                  name="Product Match to Date Lookup"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Date Match to Derived Column]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\DER - Calculate Metrics.Inputs[Derived Column Input]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Date Dim.Outputs[Lookup Match Output]"
+                  name="Date Match to Derived Column"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Derived to Conditional Split]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check.Inputs[Conditional Split Input]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\DER - Calculate Metrics.Outputs[Derived Column Output]"
+                  name="Derived to Conditional Split"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Valid to Multicast]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\MCST - Split Valid Records.Inputs[Multicast Input 1]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check.Outputs[Valid Records]"
+                  name="Valid to Multicast"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Multicast to Sort]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\SORT - By SaleID.Inputs[Sort Input]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\MCST - Split Valid Records.Outputs[To Fact Table]"
+                  name="Multicast to Sort"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Sort to Fact Destination]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_DST - Fact Sales.Inputs[OLE DB Destination Input]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\SORT - By SaleID.Outputs[Sort Output]"
+                  name="Sort to Fact Destination"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Multicast to Aggregate]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\AGG - Daily Sales Summary.Inputs[Aggregate Input 1]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\MCST - Split Valid Records.Outputs[To Daily Aggregation]"
+                  name="Multicast to Aggregate"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Aggregate to Daily Summary]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\OLE_DST - Daily Summary.Inputs[OLE DB Destination Input]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\AGG - Daily Sales Summary.Outputs[Aggregate Output 1]"
+                  name="Aggregate to Daily Summary"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Customer No Match to Union]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\UNAL - Combine Errors.Inputs[Union All Input 1]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Customer Dim.Outputs[Lookup No Match Output]"
+                  name="Customer No Match to Union"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Product No Match to Union]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\UNAL - Combine Errors.Inputs[Union All Input 2]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\LKP - Product Dim.Outputs[Lookup No Match Output]"
+                  name="Product No Match to Union"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Bad Data to Union]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\UNAL - Combine Errors.Inputs[Union All Input 3]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\CSPL - Data Quality Check.Outputs[Invalid - Bad Data]"
+                  name="Bad Data to Union"/>
+                <path refId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales.Paths[Union to Error File]"
+                  endId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\FF_DST - Error Log.Inputs[Flat File Destination Input]"
+                  startId="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales\UNAL - Combine Errors.Outputs[Union All Output 1]"
+                  name="Union to Error File"/>
+              </paths>
+              
+            </pipeline>
+          </DTS:ObjectData>
+        </DTS:Executable>
+
+        <!-- DATA FLOW TASK: Process Customer SCD Type 2 -->
+        <DTS:Executable
+          DTS:refId="Package\SEQ - Main ETL Process\DFT - Customer SCD"
+          DTS:CreationName="Microsoft.Pipeline"
+          DTS:DTSID="{DFT00002-0000-0000-0000-000000000002}"
+          DTS:ExecutableType="Microsoft.Pipeline"
+          DTS:ObjectName="DFT - Customer SCD Type 2">
+          
+          <DTS:ObjectData>
+            <pipeline version="1">
+              <components>
+                
+                <!-- SOURCE: Staging Customer Changes -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\OLE_SRC - Customer Changes"
+                  componentClassID="Microsoft.OLEDBSource"
+                  name="OLE_SRC - Customer Changes"
+                  version="7">
+                  <properties>
+                    <property name="SqlCommand">SELECT DISTINCT
+    s.CustomerID,
+    c.CustomerName,
+    c.Email,
+    c.Phone,
+    c.Address,
+    c.City,
+    c.State,
+    c.PostalCode,
+    c.Country,
+    c.CustomerSegment,
+    c.CreditLimit,
+    c.AccountManager
+FROM staging.Sales s
+INNER JOIN SourceDB_OLTP.dbo.Customers c ON s.CustomerID = c.CustomerID</property>
+                    <property name="AccessMode">2</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\OLE_SRC - Customer Changes.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\OLE_SRC - Customer Changes.Outputs[OLE DB Source Output]" name="OLE DB Source Output"/>
+                  </outputs>
+                </component>
+
+                <!-- SLOWLY CHANGING DIMENSION -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\SCD - Customer Dimension"
+                  componentClassID="Microsoft.SlowlyChangingDimension"
+                  name="SCD - Customer Dimension"
+                  version="3">
+                  <properties>
+                    <property name="SqlCommand">SELECT * FROM dim.Customer WHERE IsCurrent = 1</property>
+                    <property name="CurrentRowWhere">IsCurrent = 1</property>
+                    <property name="EnableInferredMember">False</property>
+                    <property name="IncomingRowChangeType">0</property>
+                    <property name="FailOnFixedAttributeChange">True</property>
+                    <property name="FailOnLookupFailure">False</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\SCD - Customer Dimension.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                  <inputs>
+                    <input refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\SCD - Customer Dimension.Inputs[Slowly Changing Dimension Input]" name="Slowly Changing Dimension Input">
+                      <inputColumns>
+                        <!-- Business Key -->
+                        <inputColumn refId="SCD.Inputs[Input].Columns[CustomerID]">
+                          <properties>
+                            <property name="ColumnType">0</property> <!-- Business Key -->
+                          </properties>
+                        </inputColumn>
+                        <!-- Historical Attributes (Type 2) -->
+                        <inputColumn refId="SCD.Inputs[Input].Columns[CustomerSegment]">
+                          <properties>
+                            <property name="ColumnType">2</property> <!-- Historical -->
+                          </properties>
+                        </inputColumn>
+                        <inputColumn refId="SCD.Inputs[Input].Columns[CreditLimit]">
+                          <properties>
+                            <property name="ColumnType">2</property> <!-- Historical -->
+                          </properties>
+                        </inputColumn>
+                        <inputColumn refId="SCD.Inputs[Input].Columns[AccountManager]">
+                          <properties>
+                            <property name="ColumnType">2</property> <!-- Historical -->
+                          </properties>
+                        </inputColumn>
+                        <!-- Changing Attributes (Type 1) -->
+                        <inputColumn refId="SCD.Inputs[Input].Columns[CustomerName]">
+                          <properties>
+                            <property name="ColumnType">1</property> <!-- Changing -->
+                          </properties>
+                        </inputColumn>
+                        <inputColumn refId="SCD.Inputs[Input].Columns[Email]">
+                          <properties>
+                            <property name="ColumnType">1</property> <!-- Changing -->
+                          </properties>
+                        </inputColumn>
+                        <inputColumn refId="SCD.Inputs[Input].Columns[Phone]">
+                          <properties>
+                            <property name="ColumnType">1</property> <!-- Changing -->
+                          </properties>
+                        </inputColumn>
+                        <inputColumn refId="SCD.Inputs[Input].Columns[Address]">
+                          <properties>
+                            <property name="ColumnType">1</property> <!-- Changing -->
+                          </properties>
+                        </inputColumn>
+                      </inputColumns>
+                    </input>
+                  </inputs>
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\SCD - Customer Dimension.Outputs[New Output]" name="New Output"/>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\SCD - Customer Dimension.Outputs[Changing Attributes Updates Output]" name="Changing Attributes Updates Output"/>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\SCD - Customer Dimension.Outputs[Historical Attribute Inserts Output]" name="Historical Attribute Inserts Output"/>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\SCD - Customer Dimension.Outputs[Unchanged Output]" name="Unchanged Output"/>
+                  </outputs>
+                </component>
+
+                <!-- OLEDB COMMAND: Expire Old Records -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\OLE_CMD - Expire Records"
+                  componentClassID="Microsoft.OLEDBCommand"
+                  name="OLE_CMD - Expire Records"
+                  version="3">
+                  <properties>
+                    <property name="SqlCommand">UPDATE dim.Customer 
+SET IsCurrent = 0, 
+    EffectiveEndDate = GETDATE(),
+    ModifiedDate = GETDATE()
+WHERE CustomerID = ? AND IsCurrent = 1</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\OLE_CMD - Expire Records.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                </component>
+
+                <!-- DERIVED COLUMN: Add SCD Metadata -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\DER - SCD Metadata"
+                  componentClassID="Microsoft.DerivedColumn"
+                  name="DER - SCD Metadata"
+                  version="2">
+                  <outputs>
+                    <output refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\DER - SCD Metadata.Outputs[Derived Column Output]" name="Derived Column Output">
+                      <outputColumns>
+                        <outputColumn refId="DER - SCD Metadata.Outputs[Output].Columns[EffectiveStartDate]" dataType="dbTimeStamp" name="EffectiveStartDate" expression="GETDATE()"/>
+                        <outputColumn refId="DER - SCD Metadata.Outputs[Output].Columns[EffectiveEndDate]" dataType="dbTimeStamp" name="EffectiveEndDate" expression="(DT_DBTIMESTAMP)&quot;9999-12-31&quot;"/>
+                        <outputColumn refId="DER - SCD Metadata.Outputs[Output].Columns[IsCurrent]" dataType="bool" name="IsCurrent" expression="TRUE"/>
+                        <outputColumn refId="DER - SCD Metadata.Outputs[Output].Columns[CreatedDate]" dataType="dbTimeStamp" name="CreatedDate" expression="GETDATE()"/>
+                      </outputColumns>
+                    </output>
+                  </outputs>
+                </component>
+
+                <!-- DESTINATION: Insert New/Historical Customer Records -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\OLE_DST - Dim Customer"
+                  componentClassID="Microsoft.OLEDBDestination"
+                  name="OLE_DST - Dim Customer"
+                  version="4">
+                  <properties>
+                    <property name="OpenRowset">[dim].[Customer]</property>
+                    <property name="AccessMode">3</property>
+                    <property name="FastLoadOptions">TABLOCK,CHECK_CONSTRAINTS</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\OLE_DST - Dim Customer.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                </component>
+
+                <!-- OLEDB COMMAND: Update Type 1 Changes -->
+                <component
+                  refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\OLE_CMD - Update Type1"
+                  componentClassID="Microsoft.OLEDBCommand"
+                  name="OLE_CMD - Update Type1"
+                  version="3">
+                  <properties>
+                    <property name="SqlCommand">UPDATE dim.Customer 
+SET CustomerName = ?,
+    Email = ?,
+    Phone = ?,
+    Address = ?,
+    ModifiedDate = GETDATE()
+WHERE CustomerID = ? AND IsCurrent = 1</property>
+                  </properties>
+                  <connections>
+                    <connection refId="Package\SEQ - Main ETL Process\DFT - Customer SCD\OLE_CMD - Update Type1.Connections[OleDbConnection]"
+                      connectionManagerRefId="Package.ConnectionManagers[DestDW_Sales]"
+                      name="OleDbConnection"/>
+                  </connections>
+                </component>
+
+              </components>
+            </pipeline>
+          </DTS:ObjectData>
+        </DTS:Executable>
+
+      </DTS:Executables>
+      
+      <!-- Sequence Container Precedence Constraints -->
+      <DTS:PrecedenceConstraints>
+        <DTS:PrecedenceConstraint
+          DTS:refId="Package\SEQ - Main ETL Process.PrecedenceConstraints[DFT Sales to Customer SCD]"
+          DTS:CreationName=""
+          DTS:DTSID="{PC000001-0000-0000-0000-000000000001}"
+          DTS:From="Package\SEQ - Main ETL Process\DFT - Extract Transform Sales"
+          DTS:To="Package\SEQ - Main ETL Process\DFT - Customer SCD"
+          DTS:ObjectName="DFT Sales to Customer SCD"
+          DTS:Value="0"/>
+      </DTS:PrecedenceConstraints>
+      
+    </DTS:Executable>
+
+    <!-- TASK 5: Update Watermark Table -->
+    <DTS:Executable
+      DTS:refId="Package\Update Watermark"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{TASK0004-0000-0000-0000-000000000004}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:ObjectName="Update Watermark">
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{22222222-2222-2222-2222-222222222222}"
+          SQLTask:SqlStatementSource="MERGE dbo.ETL_WatermarkTable AS target
+USING (SELECT 'Sales' AS TableName, ? AS LastExtractDate, 'Success' AS Status) AS source
+ON target.TableName = source.TableName
+WHEN MATCHED THEN
+    UPDATE SET LastExtractDate = source.LastExtractDate, 
+               Status = source.Status,
+               ModifiedDate = GETDATE()
+WHEN NOT MATCHED THEN
+    INSERT (TableName, LastExtractDate, Status, CreatedDate)
+    VALUES (source.TableName, source.LastExtractDate, source.Status, GETDATE());"
+          xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask">
+          <SQLTask:ParameterBinding
+            SQLTask:ParameterName="0"
+            SQLTask:DtsVariableName="User::ExtractEndDate"
+            SQLTask:ParameterDirection="Input"
+            SQLTask:DataType="135"
+            SQLTask:ParameterSize="-1"/>
+        </SQLTask:SqlTaskData>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+    <!-- TASK 6: Log Package Success -->
+    <DTS:Executable
+      DTS:refId="Package\Log Package Success"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{TASK0005-0000-0000-0000-000000000005}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:ObjectName="Log Package Success">
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{22222222-2222-2222-2222-222222222222}"
+          SQLTask:SqlStatementSource="UPDATE dbo.ETL_BatchLog 
+SET BatchEndTime = GETDATE(),
+    Status = 'Success',
+    RowsExtracted = ?,
+    RowsInserted = ?,
+    RowsUpdated = ?,
+    ErrorCount = ?
+WHERE BatchID = ?;"
+          xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask">
+          <SQLTask:ParameterBinding SQLTask:ParameterName="0" SQLTask:DtsVariableName="User::RowsExtracted" SQLTask:ParameterDirection="Input" SQLTask:DataType="3"/>
+          <SQLTask:ParameterBinding SQLTask:ParameterName="1" SQLTask:DtsVariableName="User::RowsInserted" SQLTask:ParameterDirection="Input" SQLTask:DataType="3"/>
+          <SQLTask:ParameterBinding SQLTask:ParameterName="2" SQLTask:DtsVariableName="User::RowsUpdated" SQLTask:ParameterDirection="Input" SQLTask:DataType="3"/>
+          <SQLTask:ParameterBinding SQLTask:ParameterName="3" SQLTask:DtsVariableName="User::ErrorCount" SQLTask:ParameterDirection="Input" SQLTask:DataType="3"/>
+          <SQLTask:ParameterBinding SQLTask:ParameterName="4" SQLTask:DtsVariableName="User::BatchID" SQLTask:ParameterDirection="Input" SQLTask:DataType="3"/>
+        </SQLTask:SqlTaskData>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+    <!-- TASK 7: Send Email Notification (On Success) -->
+    <DTS:Executable
+      DTS:refId="Package\Send Success Email"
+      DTS:CreationName="Microsoft.SendMailTask"
+      DTS:DTSID="{TASK0006-0000-0000-0000-000000000006}"
+      DTS:ExecutableType="Microsoft.SendMailTask"
+      DTS:ObjectName="Send Success Email">
+      <DTS:ObjectData>
+        <SendMailTask:SendMailTaskData
+          SendMailTask:SMTPServer="smtp.company.com"
+          SendMailTask:From="etl-notifications@company.com"
+          SendMailTask:To="data-team@company.com"
+          SendMailTask:Subject="Sales ETL Completed Successfully"
+          SendMailTask:MessageSourceType="DirectInput"
+          SendMailTask:MessageSource="The Sales ETL package completed successfully."
+          xmlns:SendMailTask="www.microsoft.com/sqlserver/dts/tasks/sendmailtask">
+        </SendMailTask:SendMailTaskData>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+  </DTS:Executables>
+
+  <!-- ============================================== -->
+  <!-- CONTROL FLOW PRECEDENCE CONSTRAINTS           -->
+  <!-- ============================================== -->
+  <DTS:PrecedenceConstraints>
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[Log Start to Truncate]"
+      DTS:CreationName=""
+      DTS:DTSID="{PC100001-0000-0000-0000-000000000001}"
+      DTS:From="Package\Log Package Start"
+      DTS:To="Package\Truncate Staging Tables"
+      DTS:ObjectName="Log Start to Truncate"
+      DTS:Value="0"/>
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[Truncate to Get Date]"
+      DTS:CreationName=""
+      DTS:DTSID="{PC100002-0000-0000-0000-000000000002}"
+      DTS:From="Package\Truncate Staging Tables"
+      DTS:To="Package\Get Last Extract Date"
+      DTS:ObjectName="Truncate to Get Date"
+      DTS:Value="0"/>
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[Get Date to Main ETL]"
+      DTS:CreationName=""
+      DTS:DTSID="{PC100003-0000-0000-0000-000000000003}"
+      DTS:From="Package\Get Last Extract Date"
+      DTS:To="Package\SEQ - Main ETL Process"
+      DTS:ObjectName="Get Date to Main ETL"
+      DTS:Value="0"/>
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[Main ETL to Update Watermark]"
+      DTS:CreationName=""
+      DTS:DTSID="{PC100004-0000-0000-0000-000000000004}"
+      DTS:From="Package\SEQ - Main ETL Process"
+      DTS:To="Package\Update Watermark"
+      DTS:ObjectName="Main ETL to Update Watermark"
+      DTS:Value="0"/>
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[Update Watermark to Log Success]"
+      DTS:CreationName=""
+      DTS:DTSID="{PC100005-0000-0000-0000-000000000005}"
+      DTS:From="Package\Update Watermark"
+      DTS:To="Package\Log Package Success"
+      DTS:ObjectName="Update Watermark to Log Success"
+      DTS:Value="0"/>
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[Log Success to Send Email]"
+      DTS:CreationName=""
+      DTS:DTSID="{PC100006-0000-0000-0000-000000000006}"
+      DTS:From="Package\Log Package Success"
+      DTS:To="Package\Send Success Email"
+      DTS:ObjectName="Log Success to Send Email"
+      DTS:Value="0"/>
+  </DTS:PrecedenceConstraints>
+
+  <!-- ============================================== -->
+  <!-- EVENT HANDLERS                                 -->
+  <!-- ============================================== -->
+  <DTS:EventHandlers>
+    <!-- OnError Event Handler -->
+    <DTS:EventHandler
+      DTS:refId="Package.EventHandlers[OnError]"
+      DTS:CreationName="OnError"
+      DTS:DTSID="{EH000001-0000-0000-0000-000000000001}"
+      DTS:EventName="OnError">
+      <DTS:Executables>
+        <DTS:Executable
+          DTS:refId="Package.EventHandlers[OnError]\Log Error"
+          DTS:CreationName="Microsoft.ExecuteSQLTask"
+          DTS:DTSID="{EH000002-0000-0000-0000-000000000002}"
+          DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+          DTS:ObjectName="Log Error">
+          <DTS:ObjectData>
+            <SQLTask:SqlTaskData
+              SQLTask:Connection="{22222222-2222-2222-2222-222222222222}"
+              SQLTask:SqlStatementSource="INSERT INTO dbo.ETL_ErrorLog 
+    (BatchID, ErrorCode, ErrorDescription, SourceName, ErrorTime)
+VALUES 
+    (?, ?, ?, ?, GETDATE());"
+              xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask">
+              <SQLTask:ParameterBinding SQLTask:ParameterName="0" SQLTask:DtsVariableName="User::BatchID" SQLTask:ParameterDirection="Input" SQLTask:DataType="3"/>
+              <SQLTask:ParameterBinding SQLTask:ParameterName="1" SQLTask:DtsVariableName="System::ErrorCode" SQLTask:ParameterDirection="Input" SQLTask:DataType="3"/>
+              <SQLTask:ParameterBinding SQLTask:ParameterName="2" SQLTask:DtsVariableName="System::ErrorDescription" SQLTask:ParameterDirection="Input" SQLTask:DataType="130"/>
+              <SQLTask:ParameterBinding SQLTask:ParameterName="3" SQLTask:DtsVariableName="System::SourceName" SQLTask:ParameterDirection="Input" SQLTask:DataType="130"/>
+            </SQLTask:SqlTaskData>
+          </DTS:ObjectData>
+        </DTS:Executable>
+        
+        <DTS:Executable
+          DTS:refId="Package.EventHandlers[OnError]\Update Batch Failed"
+          DTS:CreationName="Microsoft.ExecuteSQLTask"
+          DTS:DTSID="{EH000003-0000-0000-0000-000000000003}"
+          DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+          DTS:ObjectName="Update Batch Failed">
+          <DTS:ObjectData>
+            <SQLTask:SqlTaskData
+              SQLTask:Connection="{22222222-2222-2222-2222-222222222222}"
+              SQLTask:SqlStatementSource="UPDATE dbo.ETL_BatchLog 
+SET BatchEndTime = GETDATE(),
+    Status = 'Failed'
+WHERE BatchID = ?;"
+              xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask">
+              <SQLTask:ParameterBinding SQLTask:ParameterName="0" SQLTask:DtsVariableName="User::BatchID" SQLTask:ParameterDirection="Input" SQLTask:DataType="3"/>
+            </SQLTask:SqlTaskData>
+          </DTS:ObjectData>
+        </DTS:Executable>
+        
+        <DTS:Executable
+          DTS:refId="Package.EventHandlers[OnError]\Send Failure Email"
+          DTS:CreationName="Microsoft.SendMailTask"
+          DTS:DTSID="{EH000004-0000-0000-0000-000000000004}"
+          DTS:ExecutableType="Microsoft.SendMailTask"
+          DTS:ObjectName="Send Failure Email">
+          <DTS:ObjectData>
+            <SendMailTask:SendMailTaskData
+              SendMailTask:SMTPServer="smtp.company.com"
+              SendMailTask:From="etl-notifications@company.com"
+              SendMailTask:To="data-team@company.com;oncall@company.com"
+              SendMailTask:Subject="ALERT: Sales ETL Package Failed"
+              SendMailTask:Priority="High"
+              SendMailTask:MessageSourceType="DirectInput"
+              SendMailTask:MessageSource="The Sales ETL package has failed. Please check the ETL_ErrorLog table for details."
+              xmlns:SendMailTask="www.microsoft.com/sqlserver/dts/tasks/sendmailtask">
+            </SendMailTask:SendMailTaskData>
+          </DTS:ObjectData>
+        </DTS:Executable>
+      </DTS:Executables>
+      
+      <DTS:PrecedenceConstraints>
+        <DTS:PrecedenceConstraint
+          DTS:refId="Package.EventHandlers[OnError].PrecedenceConstraints[Log to Update]"
+          DTS:From="Package.EventHandlers[OnError]\Log Error"
+          DTS:To="Package.EventHandlers[OnError]\Update Batch Failed"
+          DTS:Value="0"/>
+        <DTS:PrecedenceConstraint
+          DTS:refId="Package.EventHandlers[OnError].PrecedenceConstraints[Update to Email]"
+          DTS:From="Package.EventHandlers[OnError]\Update Batch Failed"
+          DTS:To="Package.EventHandlers[OnError]\Send Failure Email"
+          DTS:Value="0"/>
+      </DTS:PrecedenceConstraints>
+    </DTS:EventHandler>
+  </DTS:EventHandlers>
+
+</DTS:Executable>

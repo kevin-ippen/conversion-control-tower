@@ -1,0 +1,67 @@
+# Derived Column Transformations
+name: derived_column
+description: Convert SSIS Derived Column expressions to Spark withColumn operations
+tags: [transform, derived, expression, calculation]
+
+input:
+  type: ssis_component
+  component_type: DerivedColumn
+  content: |
+    <component componentClassID="Microsoft.DerivedColumn" name="DER - Calculate Metrics">
+      <outputs>
+        <output name="Derived Column Output">
+          <outputColumns>
+            <outputColumn name="ProfitAmount" dataType="cy"
+              expression="NetAmount - (Quantity * StandardCost)"/>
+            <outputColumn name="ProfitMarginPct" dataType="r8"
+              expression="NetAmount == 0 ? 0 : ((NetAmount - (Quantity * StandardCost)) / NetAmount) * 100"/>
+            <outputColumn name="SaleCategory" dataType="wstr" length="20"
+              expression="NetAmount < 100 ? &quot;Small&quot; : (NetAmount < 1000 ? &quot;Medium&quot; : (NetAmount < 10000 ? &quot;Large&quot; : &quot;Enterprise&quot;))"/>
+            <outputColumn name="ETL_LoadDate" dataType="dbTimeStamp"
+              expression="GETDATE()"/>
+            <outputColumn name="ETL_BatchID" dataType="i4"
+              expression="@[User::BatchID]"/>
+          </outputColumns>
+        </output>
+      </outputs>
+    </component>
+
+output:
+  type: pyspark
+  content: |
+    from pyspark.sql import functions as F
+    from pyspark.sql.functions import col, lit, when, current_timestamp
+
+    # Get batch ID from widget or job parameter
+    batch_id = int(dbutils.widgets.get("batch_id", "0"))
+
+    # Apply derived column transformations
+    df_enriched = df_source \
+        .withColumn(
+            "profit_amount",
+            col("net_amount") - (col("quantity") * col("standard_cost"))
+        ) \
+        .withColumn(
+            "profit_margin_pct",
+            when(col("net_amount") == 0, lit(0.0))
+            .otherwise(
+                ((col("net_amount") - (col("quantity") * col("standard_cost"))) / col("net_amount")) * 100
+            )
+        ) \
+        .withColumn(
+            "sale_category",
+            when(col("net_amount") < 100, lit("Small"))
+            .when(col("net_amount") < 1000, lit("Medium"))
+            .when(col("net_amount") < 10000, lit("Large"))
+            .otherwise(lit("Enterprise"))
+        ) \
+        .withColumn("etl_load_date", current_timestamp()) \
+        .withColumn("etl_batch_id", lit(batch_id))
+
+notes: |
+  Expression conversion rules:
+  - SSIS ternary (a ? b : c) → Spark when().otherwise()
+  - SSIS GETDATE() → Spark current_timestamp()
+  - SSIS @[User::Var] → dbutils.widgets.get() or job param
+  - SSIS (DT_TYPE) cast → Spark .cast()
+  - Nested ternary → Chained when().when().otherwise()

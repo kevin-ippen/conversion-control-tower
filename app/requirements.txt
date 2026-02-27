@@ -1,0 +1,31 @@
+# Conversion Control Tower - Dependencies
+
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# SSE for real-time status
+sse-starlette>=1.6.5
+
+# Databricks SDK
+databricks-sdk>=0.20.0
+
+# Data processing
+pandas>=2.0.0
+pyarrow>=14.0.0
+
+# Configuration
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+pyyaml>=6.0
+
+# HTTP client
+httpx>=0.26.0
+
+# AI/FMAPI
+openai>=1.12.0
+
+# Utilities
+python-dateutil>=2.8.2
+uuid7>=0.1.0

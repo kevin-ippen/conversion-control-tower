@@ -1,0 +1,51 @@
+customer_id,customer_name,email,phone,address,city,state,postal_code,country,customer_segment,credit_limit,account_manager
+1,Christopher Brown,christopher.brown1@email.com,(959) 481-5012,3757 Oak St,New York,NY,98696,USA,Basic,100000,Alice Chen
+2,Charles Wilson,charles.wilson2@email.com,(230) 295-4582,3911 Pine St,Los Angeles,CA,83563,USA,Premium,100000,David Kim
+3,Linda Anderson,linda.anderson3@email.com,(484) 206-3615,7024 Maple Blvd,Portland,OR,30379,USA,Premium,25000,Alice Chen
+4,John Gonzalez,john.gonzalez4@email.com,(567) 552-5333,811 Cedar St,Houston,TX,59615,USA,Premium,100000,Carol White
+5,Christopher Martin,christopher.martin5@email.com,(791) 396-2139,850 Oak Blvd,Jacksonville,FL,20458,USA,Premium,5000,David Kim
+6,William Anderson,william.anderson6@email.com,(366) 579-6820,3532 Maple St,Jacksonville,FL,89840,USA,Basic,10000,Eva Rodriguez
+7,Lisa Davis,lisa.davis7@email.com,(673) 588-5422,9225 Oak Blvd,Philadelphia,PA,17331,USA,Premium,5000,Carol White
+8,Richard Rodriguez,richard.rodriguez8@email.com,(416) 780-6155,3583 Cedar Dr,Chicago,IL,94259,USA,Standard,10000,Carol White
+9,Robert Davis,robert.davis9@email.com,(751) 469-8019,9660 Cedar Blvd,Boston,MA,38746,USA,Premium,100000,David Kim
+10,John Johnson,john.johnson10@email.com,(356) 842-3621,7016 Pine St,Houston,TX,60432,USA,Standard,100000,David Kim
+11,Thomas Rodriguez,thomas.rodriguez11@email.com,(211) 896-2876,8897 Maple Blvd,Boston,MA,24621,USA,Standard,50000,Bob Martinez
+12,Joseph Smith,joseph.smith12@email.com,(712) 980-3927,8417 Main Blvd,Dallas,TX,93748,USA,Basic,100000,Bob Martinez
+13,Robert Lopez,robert.lopez13@email.com,(752) 997-9689,109 Pine Blvd,Philadelphia,PA,74042,USA,Premium,5000,Carol White
+14,Elizabeth Davis,elizabeth.davis14@email.com,(446) 780-2290,1503 Cedar St,Los Angeles,CA,79822,USA,Premium,10000,David Kim
+15,Sarah Garcia,sarah.garcia15@email.com,(740) 821-7932,3570 Pine Ave,Dallas,TX,50857,USA,Standard,25000,David Kim
+16,Thomas Anderson,thomas.anderson16@email.com,(453) 430-2049,5639 Main Ave,Houston,TX,87128,USA,Premium,5000,Alice Chen
+17,Daniel Lee,daniel.lee17@email.com,(434) 269-1514,5513 Main Ave,Los Angeles,CA,46500,USA,Basic,50000,Bob Martinez
+18,Sarah Jones,sarah.jones18@email.com,(790) 684-4981,7849 Cedar Ave,Portland,OR,22363,USA,Premium,50000,Carol White
+19,Susan Wilson,susan.wilson19@email.com,(946) 255-2612,1093 Cedar Blvd,Charlotte,NC,24322,USA,Premium,10000,Bob Martinez
+20,Sarah Anderson,sarah.anderson20@email.com,(632) 387-5563,7679 Oak St,Phoenix,AZ,68082,USA,Basic,5000,Alice Chen
+21,Christopher Moore,christopher.moore21@email.com,(295) 971-4872,2824 Cedar Dr,New York,NY,73092,USA,Premium,50000,Alice Chen
+22,Jennifer Gonzalez,jennifer.gonzalez22@email.com,(599) 471-8454,4773 Cedar Dr,New York,NY,30289,USA,Premium,25000,Bob Martinez
+23,Mary Jackson,mary.jackson23@email.com,(262) 965-6138,1036 Main Dr,Boston,MA,75909,USA,Basic,10000,Alice Chen
+24,Thomas Williams,thomas.williams24@email.com,(270) 809-2113,3953 Cedar St,Philadelphia,PA,84668,USA,Premium,100000,Eva Rodriguez
+25,Mary Martin,mary.martin25@email.com,(629) 873-9565,5283 Maple Ave,Chicago,IL,97782,USA,Basic,25000,Bob Martinez
+26,William Gonzalez,william.gonzalez26@email.com,(887) 860-5915,7591 Maple St,Phoenix,AZ,11220,USA,Standard,100000,Eva Rodriguez
+27,Patricia Williams,patricia.williams27@email.com,(418) 718-5345,2270 Maple St,Boston,MA,42018,USA,Standard,25000,Bob Martinez
+28,Joseph Moore,joseph.moore28@email.com,(826) 869-9666,228 Pine Blvd,San Jose,CA,96951,USA,Premium,10000,Carol White
+29,Patricia Brown,patricia.brown29@email.com,(359) 478-5616,3550 Maple Ave,Boston,MA,93130,USA,Standard,100000,David Kim
+30,William Johnson,william.johnson30@email.com,(849) 633-5533,822 Main Blvd,Chicago,IL,27146,USA,Basic,25000,Bob Martinez
+31,Lisa Anderson,lisa.anderson31@email.com,(922) 637-1158,1932 Main Ave,Boston,MA,81511,USA,Premium,25000,Eva Rodriguez
+32,Sarah Jones,sarah.jones32@email.com,(330) 242-6050,6074 Main Blvd,Columbus,OH,37535,USA,Basic,10000,Alice Chen
+33,Barbara Moore,barbara.moore33@email.com,(835) 967-3532,3978 Oak Ave,Columbus,OH,64040,USA,Premium,10000,Carol White
+34,Susan Perez,susan.perez34@email.com,(473) 363-2771,6367 Main Dr,San Diego,CA,39154,USA,Premium,50000,Carol White
+35,Elizabeth Davis,elizabeth.davis35@email.com,(224) 875-4164,6628 Maple Blvd,San Diego,CA,19099,USA,Standard,25000,Eva Rodriguez
+36,Richard Perez,richard.perez36@email.com,(539) 228-2889,4379 Oak Blvd,Boston,MA,15014,USA,Premium,100000,David Kim
+37,Barbara Hernandez,barbara.hernandez37@email.com,(820) 723-2894,6411 Pine Ave,Columbus,OH,43386,USA,Premium,50000,Alice Chen
+38,Thomas Moore,thomas.moore38@email.com,(572) 641-2146,5509 Pine Blvd,San Antonio,TX,96951,USA,Premium,25000,Eva Rodriguez
+39,Elizabeth Perez,elizabeth.perez39@email.com,(534) 612-5844,9183 Oak Ave,Columbus,OH,65108,USA,Basic,50000,Bob Martinez
+40,Karen Jackson,karen.jackson40@email.com,(615) 761-1006,5078 Maple Ave,San Jose,CA,66346,USA,Basic,100000,Carol White
+41,Joseph Anderson,joseph.anderson41@email.com,(891) 418-9375,7852 Oak St,Charlotte,NC,47196,USA,Basic,100000,Carol White
+42,John Davis,john.davis42@email.com,(430) 403-3414,500 Main Ave,San Jose,CA,72277,USA,Basic,5000,David Kim
+43,Susan Lee,susan.lee43@email.com,(399) 935-7291,8199 Cedar Ave,Portland,OR,29342,USA,Basic,5000,Alice Chen
+44,Susan Davis,susan.davis44@email.com,(912) 730-8611,922 Pine Ave,Philadelphia,PA,25906,USA,Standard,10000,David Kim
+45,Nancy Taylor,nancy.taylor45@email.com,(809) 524-8251,8370 Cedar Dr,Boston,MA,30861,USA,Basic,50000,David Kim
+46,William Davis,william.davis46@email.com,(984) 996-9540,8039 Oak Blvd,Dallas,TX,67654,USA,Premium,25000,Bob Martinez
+47,William Hernandez,william.hernandez47@email.com,(753) 282-3267,2571 Oak Dr,Austin,TX,30028,USA,Basic,10000,Alice Chen
+48,Susan Wilson,susan.wilson48@email.com,(755) 677-7812,1120 Oak Dr,Austin,TX,61049,USA,Basic,5000,Eva Rodriguez
+49,Richard Thomas,richard.thomas49@email.com,(560) 505-7389,6965 Pine Ave,New York,NY,73993,USA,Premium,25000,David Kim
+50,Jessica Smith,jessica.smith50@email.com,(544) 884-7624,2804 Cedar Ave,Fort Worth,TX,91560,USA,Basic,5000,David Kim

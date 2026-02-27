@@ -1,0 +1,78 @@
+# Dimension Lookup with Broadcast Join
+name: lookup_dimension
+description: Convert SSIS Lookup component to Spark broadcast join for dimension tables
+tags: [lookup, dimension, broadcast, join]
+
+input:
+  type: ssis_component
+  component_type: Lookup
+  content: |
+    <component componentClassID="Microsoft.Lookup" name="LKP - Customer Dim">
+      <properties>
+        <property name="CacheType">0</property>
+        <property name="NoMatchBehavior">1</property>
+        <property name="SqlCommand">
+          SELECT CustomerSK, CustomerID, CustomerName, CustomerSegment, Region
+          FROM dim.Customer
+          WHERE IsCurrent = 1
+        </property>
+      </properties>
+      <inputs>
+        <input name="Lookup Input">
+          <inputColumns>
+            <inputColumn cachedName="CustomerID">
+              <properties>
+                <property name="JoinToReferenceColumn">CustomerID</property>
+              </properties>
+            </inputColumn>
+          </inputColumns>
+        </input>
+      </inputs>
+      <outputs>
+        <output name="Lookup Match Output">
+          <outputColumns>
+            <outputColumn name="CustomerSK"/>
+            <outputColumn name="CustomerName"/>
+            <outputColumn name="CustomerSegment"/>
+            <outputColumn name="Region"/>
+          </outputColumns>
+        </output>
+        <output name="Lookup No Match Output"/>
+      </outputs>
+    </component>
+
+output:
+  type: pyspark
+  content: |
+    from pyspark.sql.functions import broadcast
+
+    # Load customer dimension (current records only)
+    df_customer_dim = spark.table(f"{catalog}.{schema}.dim_customer") \
+        .filter("is_current = true") \
+        .select("customer_sk", "customer_id", "customer_name", "customer_segment", "region")
+
+    # Cache dimension for reuse
+    df_customer_dim.cache()
+
+    # Broadcast join - dimension is small enough to broadcast
+    df_with_customer = df_source.join(
+        broadcast(df_customer_dim),
+        on="customer_id",
+        how="left"
+    )
+
+    # Separate matched vs unmatched for error handling
+    df_matched = df_with_customer.filter("customer_sk IS NOT NULL")
+    df_no_match = df_with_customer.filter("customer_sk IS NULL")
+
+    # Log lookup metrics
+    total_rows = df_source.count()
+    matched_rows = df_matched.count()
+    print(f"Lookup match rate: {matched_rows}/{total_rows} ({matched_rows/total_rows*100:.1f}%)")
+
+notes: |
+  - Use broadcast() for dimension tables under 10MB
+  - Cache dimension DataFrames if used in multiple joins
+  - NoMatchBehavior=1 means redirect no-match rows (handle separately)
+  - CacheType=0 means full cache (load entire reference table)
+  - Always filter to current records for SCD dimensions

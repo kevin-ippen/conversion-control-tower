@@ -1,0 +1,273 @@
+# Conversion Control Tower — Conversion Configuration
+# ================================================
+# This file controls how conversions are performed.
+# Users can customize rules, provide examples, and set preferences.
+
+version: "1.0"
+config_name: "default"
+
+# =============================================================================
+# GLOBAL SETTINGS
+# =============================================================================
+settings:
+  # Target platform settings
+  target:
+    platform: databricks
+    runtime_version: "14.3"
+    language: python  # python, sql, scala
+
+  # Unity Catalog settings
+  unity_catalog:
+    enabled: true
+    default_catalog: "{{catalog}}"
+    default_schema: "{{schema}}"
+    # Use 3-part naming: catalog.schema.table
+    use_three_part_names: true
+
+  # Delta Lake settings
+  delta:
+    enabled: true
+    default_format: delta
+    optimize_write: true
+    auto_compact: true
+    # Liquid clustering vs Z-ORDER
+    clustering_strategy: liquid  # liquid, zorder, none
+
+  # Secrets management
+  secrets:
+    provider: databricks  # databricks, azure_keyvault
+    scope_name: "{{secrets_scope}}"
+    # Never hardcode credentials
+    enforce_secrets: true
+
+  # Output preferences
+  output:
+    # Include original source as comments
+    include_source_comments: true
+    # Add TODO markers for manual review items
+    add_todo_markers: true
+    # Generate documentation
+    generate_docs: true
+
+
+# =============================================================================
+# DECLARATIVE CONVERSION RULES
+# =============================================================================
+rules:
+  # Naming conventions
+  naming:
+    # Table naming pattern
+    table_pattern: "{schema}_{table_name}"
+    # Column naming: snake_case, camelCase, PascalCase
+    column_style: snake_case
+    # Remove prefixes from SSIS component names
+    strip_prefixes: ["OLE_SRC", "OLE_DST", "DFT", "SEQ", "LKP", "DER", "CSPL"]
+
+  # SQL dialect transformations
+  sql_dialect:
+    # Auto-apply these transformations
+    auto_transform:
+      - from: "GETDATE()"
+        to: "current_timestamp()"
+      - from: "GETUTCDATE()"
+        to: "current_timestamp()"
+      - from: "ISNULL("
+        to: "COALESCE("
+      - from: "NOLOCK"
+        to: ""
+      - from: "WITH (NOLOCK)"
+        to: ""
+      - from: "dbo."
+        to: ""
+      - from: "TOP (N)"
+        to: "LIMIT N"
+        regex: true
+        pattern: "TOP\\s*\\((\\d+)\\)"
+        replacement: "LIMIT $1"
+
+  # Data type mappings (override defaults)
+  data_types:
+    # SQL Server type: Spark type
+    MONEY: "DECIMAL(19,4)"
+    SMALLMONEY: "DECIMAL(10,4)"
+    DATETIME2: "TIMESTAMP"
+    UNIQUEIDENTIFIER: "STRING"
+    XML: "STRING"
+    GEOGRAPHY: "STRING"
+    GEOMETRY: "STRING"
+
+  # Component-specific rules
+  components:
+    # Lookup components
+    lookup:
+      # Use broadcast join for tables under this size (MB)
+      broadcast_threshold_mb: 10
+      # Default join type
+      default_join_type: left
+      # Cache lookup tables
+      cache_lookups: true
+
+    # Aggregate components
+    aggregate:
+      # Warn if aggregating more than this many rows without filter
+      large_agg_warning_threshold: 1000000
+
+    # Sort components
+    sort:
+      # Warn about full sorts (expensive in Spark)
+      warn_on_full_sort: true
+      # Suggest alternatives
+      suggest_alternatives: true
+
+    # SCD components
+    scd:
+      # Default SCD type
+      default_type: 2
+      # Use Delta Lake MERGE
+      use_delta_merge: true
+      # Column names for SCD metadata
+      is_current_column: "is_current"
+      effective_start_column: "effective_start_date"
+      effective_end_column: "effective_end_date"
+      end_date_value: "9999-12-31"
+
+  # Error handling rules
+  error_handling:
+    # How to handle rows that fail transformations
+    on_transform_error: quarantine  # quarantine, skip, fail
+    # Quarantine table naming
+    quarantine_table_suffix: "_quarantine"
+    # Log errors to table
+    log_errors: true
+    error_log_table: "{{catalog}}.{{schema}}.etl_error_log"
+
+  # Performance rules
+  performance:
+    # Partition large tables
+    auto_partition: true
+    partition_threshold_gb: 1
+    # Suggested partition columns by table pattern
+    partition_hints:
+      - pattern: "*_fact_*"
+        columns: ["date_key", "date_sk"]
+      - pattern: "*sales*"
+        columns: ["sale_date", "order_date"]
+    # Optimize file sizes
+    target_file_size_mb: 128
+
+
+# =============================================================================
+# CUSTOM INSTRUCTIONS
+# =============================================================================
+instructions:
+  # Global instructions for all conversions
+  global: |
+    - Always use Unity Catalog three-part naming (catalog.schema.table)
+    - Store all credentials in Databricks Secrets, never hardcode
+    - Use Delta Lake format for all tables
+    - Add appropriate comments explaining business logic
+    - Prefer batch operations over row-by-row processing
+    - Use broadcast joins for small dimension tables
+
+  # Instructions for specific component types
+  by_component:
+    OLEDBSource: |
+      - Convert to spark.read.table() using Unity Catalog when possible
+      - Only use JDBC for external sources not in Unity Catalog
+      - Apply column pruning - only select needed columns
+      - Push filters to source when possible
+
+    Lookup: |
+      - Use broadcast() for dimension tables under 10MB
+      - Cache lookup DataFrames if used multiple times
+      - Handle null keys explicitly with left joins
+      - Add metrics for lookup match rates
+
+    DerivedColumn: |
+      - Convert SSIS expressions to Spark SQL expressions
+      - Use F.when() for conditional logic instead of UDFs
+      - Maintain data types carefully during transformations
+
+    ConditionalSplit: |
+      - Create separate DataFrames for each output path
+      - Consider using .filter() with caching for efficiency
+      - Ensure conditions are mutually exclusive or handle overlaps
+
+    SlowlyChangingDimension: |
+      - Use Delta Lake MERGE for SCD Type 2
+      - First expire old records, then insert new versions
+      - Include audit columns (created_date, modified_date)
+      - Use surrogate keys, not natural keys in fact tables
+
+    Aggregate: |
+      - Use groupBy().agg() pattern
+      - Consider approximate functions for large datasets (approx_count_distinct)
+      - Be aware of Spark's shuffle behavior with aggregations
+
+  # Custom business rules (add your own)
+  business_rules: |
+    # Add your organization-specific rules here
+    # Example:
+    # - All customer data must be masked in non-production
+    # - Financial calculations must use DECIMAL, not FLOAT
+    # - Dates must be stored in UTC
+
+
+# =============================================================================
+# VALIDATION RULES
+# =============================================================================
+validation:
+  # Pre-conversion checks
+  pre_conversion:
+    - name: "check_source_exists"
+      description: "Verify source file exists and is readable"
+      enabled: true
+
+    - name: "check_connections"
+      description: "Validate all connection strings are parameterized"
+      enabled: true
+
+  # Post-conversion checks
+  post_conversion:
+    - name: "syntax_validation"
+      description: "Verify generated code is syntactically correct"
+      enabled: true
+
+    - name: "no_hardcoded_credentials"
+      description: "Ensure no credentials in generated code"
+      enabled: true
+      patterns:
+        - "password\\s*="
+        - "secret\\s*="
+        - "api_key\\s*="
+
+    - name: "unity_catalog_compliance"
+      description: "Verify three-part naming is used"
+      enabled: true
+
+  # Quality thresholds
+  thresholds:
+    min_overall_score: 0.80
+    min_category_scores:
+      data_completeness: 0.90
+      data_accuracy: 0.95
+      transformation_logic: 0.85
+      error_handling: 0.80
+
+
+# =============================================================================
+# TEMPLATE VARIABLES
+# =============================================================================
+# These variables can be used in templates with {{variable_name}} syntax
+variables:
+  # Environment-specific (override via CLI or environment)
+  catalog: "main"
+  schema: "default"
+  secrets_scope: "etl_secrets"
+
+  # Connection templates
+  jdbc_url_template: "jdbc:sqlserver://{{server}}:{{port}};database={{database}}"
+
+  # Common paths
+  checkpoint_path: "/Volumes/{{catalog}}/{{schema}}/checkpoints"
+  error_log_path: "/Volumes/{{catalog}}/{{schema}}/logs/errors"

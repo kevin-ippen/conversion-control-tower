@@ -1,0 +1,55 @@
+# OLE DB Source to JDBC Read (External Source)
+name: oledb_source_jdbc
+description: Convert OLE DB Source to JDBC read for external SQL Server databases
+tags: [source, oledb, jdbc, external]
+
+input:
+  type: ssis_component
+  component_type: OLEDBSource
+  connection_type: external_sqlserver
+  content: |
+    <component componentClassID="Microsoft.OLEDBSource" name="OLE_SRC - External Data">
+      <properties>
+        <property name="SqlCommand">
+          SELECT * FROM ExternalDB.dbo.Customers WHERE IsActive = 1
+        </property>
+      </properties>
+      <connections>
+        <connection connectionManagerRefId="ExternalSQLServer"/>
+      </connections>
+    </component>
+
+output:
+  type: pyspark
+  content: |
+    # Read from external SQL Server via JDBC
+    # Credentials stored in Databricks Secrets
+
+    jdbc_url = dbutils.secrets.get(scope="etl_secrets", key="external_jdbc_url")
+    jdbc_user = dbutils.secrets.get(scope="etl_secrets", key="external_jdbc_user")
+    jdbc_password = dbutils.secrets.get(scope="etl_secrets", key="external_jdbc_password")
+
+    df_external = spark.read.format("jdbc") \
+        .option("url", jdbc_url) \
+        .option("query", """
+            SELECT *
+            FROM ExternalDB.dbo.Customers
+            WHERE IsActive = 1
+        """) \
+        .option("user", jdbc_user) \
+        .option("password", jdbc_password) \
+        .option("fetchsize", "10000") \
+        .option("pushDownPredicate", "true") \
+        .load()
+
+    # For large tables, consider partitioned read:
+    # .option("partitionColumn", "CustomerID") \
+    # .option("lowerBound", "1") \
+    # .option("upperBound", "1000000") \
+    # .option("numPartitions", "10") \
+
+notes: |
+  - NEVER hardcode credentials - always use Databricks Secrets
+  - Use pushDownPredicate to filter at source
+  - For large tables, use partitioned reads
+  - Consider incremental loads with watermarking

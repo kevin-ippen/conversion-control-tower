@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-02-03T17:57:48.657301",
+  "seed": 42,
+  "counts": {
+    "customers": 50,
+    "dim_customers": 63,
+    "products": 30,
+    "dim_products": 30,
+    "dim_dates": 366,
+    "sales": 1010
+  },
+  "date_range": {
+    "start": "2024-01-01T00:00:00",
+    "end": "2024-12-31T00:00:00"
+  },
+  "edge_cases": {
+    "null_discounts": 108,
+    "bad_quantities": 15,
+    "missing_customers": 10
+  }
+}

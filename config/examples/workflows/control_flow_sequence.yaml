@@ -1,0 +1,163 @@
+# Control Flow Sequence to Databricks Workflow
+name: control_flow_sequence
+description: Convert SSIS control flow with sequence container to Databricks workflow
+tags: [workflow, control_flow, sequence, job, orchestration]
+
+input:
+  type: ssis_control_flow
+  content: |
+    Control Flow Structure:
+    1. Log Package Start (Execute SQL)
+           ↓
+    2. Truncate Staging Tables (Execute SQL)
+           ↓
+    3. Get Last Extract Date (Execute SQL → Variables)
+           ↓
+    4. [SEQUENCE CONTAINER: Main ETL Process]
+        ├── Data Flow: Extract Transform Sales
+        │       ↓
+        └── Data Flow: Customer SCD Type 2
+           ↓
+    5. Update Watermark (Execute SQL with MERGE)
+           ↓
+    6. Log Package Success (Execute SQL)
+           ↓
+    7. Send Success Email
+
+    [OnError Event Handler]
+        → Log Error → Update Batch Failed → Send Failure Email
+
+output:
+  type: databricks_workflow
+  content: |
+    {
+      "name": "sales_data_etl",
+      "description": "Sales ETL Pipeline - converted from SSIS SalesDataETL.dtsx",
+      "max_concurrent_runs": 1,
+
+      "job_clusters": [
+        {
+          "job_cluster_key": "etl_cluster",
+          "new_cluster": {
+            "spark_version": "14.3.x-scala2.12",
+            "node_type_id": "Standard_DS3_v2",
+            "num_workers": 2,
+            "spark_conf": {
+              "spark.databricks.delta.optimizeWrite.enabled": "true"
+            }
+          }
+        }
+      ],
+
+      "parameters": [
+        {"name": "start_date", "default": ""},
+        {"name": "end_date", "default": ""},
+        {"name": "batch_id", "default": "0"}
+      ],
+
+      "tasks": [
+        {
+          "task_key": "log_start",
+          "description": "Log package start to batch log table",
+          "sql_task": {
+            "warehouse_id": "{{warehouse_id}}",
+            "query": {
+              "query_text": "INSERT INTO catalog.schema.etl_batch_log (package_name, start_time, status) VALUES ('sales_etl', current_timestamp(), 'Running') RETURNING batch_id"
+            }
+          }
+        },
+        {
+          "task_key": "truncate_staging",
+          "description": "Clear staging tables",
+          "depends_on": [{"task_key": "log_start"}],
+          "sql_task": {
+            "warehouse_id": "{{warehouse_id}}",
+            "query": {
+              "query_text": "TRUNCATE TABLE catalog.schema.staging_sales"
+            }
+          }
+        },
+        {
+          "task_key": "get_watermark",
+          "description": "Get last successful extract date",
+          "depends_on": [{"task_key": "truncate_staging"}],
+          "sql_task": {
+            "warehouse_id": "{{warehouse_id}}",
+            "query": {
+              "query_text": "SELECT COALESCE(MAX(last_extract_date), '1900-01-01') FROM catalog.schema.etl_watermark WHERE table_name = 'sales'"
+            }
+          }
+        },
+        {
+          "task_key": "extract_transform_sales",
+          "description": "Main sales ETL data flow",
+          "depends_on": [{"task_key": "get_watermark"}],
+          "job_cluster_key": "etl_cluster",
+          "notebook_task": {
+            "notebook_path": "/Repos/etl/notebooks/extract_transform_sales",
+            "base_parameters": {
+              "batch_id": "{{job.parameters.batch_id}}"
+            }
+          },
+          "timeout_seconds": 7200,
+          "max_retries": 1
+        },
+        {
+          "task_key": "customer_scd",
+          "description": "Customer dimension SCD Type 2",
+          "depends_on": [{"task_key": "extract_transform_sales"}],
+          "job_cluster_key": "etl_cluster",
+          "notebook_task": {
+            "notebook_path": "/Repos/etl/notebooks/customer_scd"
+          },
+          "timeout_seconds": 3600
+        },
+        {
+          "task_key": "update_watermark",
+          "description": "Update watermark after successful load",
+          "depends_on": [{"task_key": "customer_scd"}],
+          "sql_task": {
+            "warehouse_id": "{{warehouse_id}}",
+            "query": {
+              "query_text": "MERGE INTO catalog.schema.etl_watermark t USING (SELECT 'sales', current_date()) s(table_name, last_date) ON t.table_name = s.table_name WHEN MATCHED THEN UPDATE SET last_extract_date = s.last_date WHEN NOT MATCHED THEN INSERT *"
+            }
+          }
+        },
+        {
+          "task_key": "log_success",
+          "description": "Log successful completion",
+          "depends_on": [{"task_key": "update_watermark"}],
+          "sql_task": {
+            "warehouse_id": "{{warehouse_id}}",
+            "query": {
+              "query_text": "UPDATE catalog.schema.etl_batch_log SET end_time = current_timestamp(), status = 'Success' WHERE batch_id = {{job.parameters.batch_id}}"
+            }
+          }
+        }
+      ],
+
+      "email_notifications": {
+        "on_success": ["team@company.com"],
+        "on_failure": ["team@company.com", "oncall@company.com"]
+      },
+
+      "webhook_notifications": {
+        "on_failure": [
+          {"id": "slack_webhook_id"}
+        ]
+      }
+    }
+
+notes: |
+  Control flow mapping:
+  - Execute SQL Task → sql_task
+  - Data Flow Task → notebook_task
+  - Sequence Container → Flatten to tasks with depends_on
+  - Send Mail Task → email_notifications in job config
+  - OnError Handler → on_failure notifications
+
+  Best practices:
+  - Use sql_task for simple SQL operations
+  - Use notebook_task for complex data flows
+  - Set appropriate timeouts per task
+  - Configure retries for transient failures

@@ -1,0 +1,54 @@
+# Basic OLE DB Source to Spark Read
+name: oledb_source_basic
+description: Convert a simple OLE DB Source with SQL query to Spark DataFrame read
+tags: [source, oledb, jdbc, basic]
+
+input:
+  type: ssis_component
+  component_type: OLEDBSource
+  content: |
+    <component componentClassID="Microsoft.OLEDBSource" name="OLE_SRC - Sales">
+      <properties>
+        <property name="SqlCommand">
+          SELECT SaleID, CustomerID, ProductID, SaleDate, Quantity, UnitPrice
+          FROM dbo.Sales
+          WHERE SaleDate >= ? AND SaleDate < ?
+        </property>
+        <property name="AccessMode">2</property>
+        <property name="ParameterMapping">
+          "@[User::StartDate]",Input,0;
+          "@[User::EndDate]",Input,1;
+        </property>
+      </properties>
+    </component>
+
+output:
+  type: pyspark
+  content: |
+    # Read sales data with date range filter
+    # Parameters: start_date, end_date (from widgets or job params)
+    start_date = dbutils.widgets.get("start_date")
+    end_date = dbutils.widgets.get("end_date")
+
+    df_sales = spark.sql(f"""
+        SELECT
+            SaleID,
+            CustomerID,
+            ProductID,
+            SaleDate,
+            Quantity,
+            UnitPrice
+        FROM {catalog}.{schema}.sales
+        WHERE SaleDate >= '{start_date}'
+          AND SaleDate < '{end_date}'
+    """)
+
+    # Alternative: Read from Unity Catalog table directly
+    # df_sales = spark.table(f"{catalog}.{schema}.sales") \
+    #     .filter(f"SaleDate >= '{start_date}' AND SaleDate < '{end_date}'")
+
+notes: |
+  - Prefer Unity Catalog tables over JDBC when data is already in Databricks
+  - Parameters are converted from SSIS variables to Databricks widgets/job params
+  - Use f-strings for parameterized queries (ensure proper escaping)
+  - Consider using parameterized queries for production security

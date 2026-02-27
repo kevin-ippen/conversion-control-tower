@@ -1,0 +1,74 @@
+# Conditional Split to DataFrame Filters
+name: conditional_split
+description: Convert SSIS Conditional Split to multiple filtered DataFrames
+tags: [transform, conditional, filter, split, routing]
+
+input:
+  type: ssis_component
+  component_type: ConditionalSplit
+  content: |
+    <component componentClassID="Microsoft.ConditionalSplit" name="CSPL - Data Quality Check">
+      <outputs>
+        <output name="Valid Records"
+          expression="!ISNULL(CustomerSK) &amp;&amp; !ISNULL(ProductSK) &amp;&amp; !ISNULL(DateSK) &amp;&amp; Quantity > 0 &amp;&amp; NetAmount >= 0"/>
+        <output name="Invalid - Missing Customer"
+          expression="ISNULL(CustomerSK)"/>
+        <output name="Invalid - Missing Product"
+          expression="ISNULL(ProductSK)"/>
+        <output name="Invalid - Bad Data"
+          expression="Quantity <= 0 || NetAmount < 0"/>
+        <output name="Conditional Split Default Output"/>
+      </outputs>
+    </component>
+
+output:
+  type: pyspark
+  content: |
+    from pyspark.sql.functions import col
+
+    # Define validation conditions
+    valid_condition = (
+        col("customer_sk").isNotNull() &
+        col("product_sk").isNotNull() &
+        col("date_sk").isNotNull() &
+        (col("quantity") > 0) &
+        (col("net_amount") >= 0)
+    )
+
+    missing_customer_condition = col("customer_sk").isNull()
+    missing_product_condition = col("product_sk").isNull()
+    bad_data_condition = (col("quantity") <= 0) | (col("net_amount") < 0)
+
+    # Cache source for multiple filters (avoid re-reading)
+    df_source.cache()
+
+    # Split into output paths
+    df_valid = df_source.filter(valid_condition)
+
+    # Error paths (for quarantine/logging)
+    df_missing_customer = df_source.filter(missing_customer_condition)
+    df_missing_product = df_source.filter(missing_product_condition)
+    df_bad_data = df_source.filter(bad_data_condition)
+
+    # Default output (rows that don't match any condition)
+    all_error_conditions = (
+        missing_customer_condition |
+        missing_product_condition |
+        bad_data_condition
+    )
+    df_default = df_source.filter(~valid_condition & ~all_error_conditions)
+
+    # Log split metrics
+    total = df_source.count()
+    print(f"Data Quality Split Results:")
+    print(f"  Valid: {df_valid.count()} ({df_valid.count()/total*100:.1f}%)")
+    print(f"  Missing Customer: {df_missing_customer.count()}")
+    print(f"  Missing Product: {df_missing_product.count()}")
+    print(f"  Bad Data: {df_bad_data.count()}")
+
+notes: |
+  - SSIS && becomes Spark & (bitwise AND for boolean columns)
+  - SSIS || becomes Spark | (bitwise OR for boolean columns)
+  - SSIS ISNULL(x) becomes Spark col(x).isNull()
+  - Cache source DataFrame when splitting into multiple outputs
+  - Consider order of conditions - first match wins in SSIS

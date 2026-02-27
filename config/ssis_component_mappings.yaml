@@ -1,0 +1,365 @@
+# SSIS Component to Databricks Mappings
+# Defines how SSIS components translate to Databricks equivalents
+
+version: "1.0"
+
+# Control Flow Task Mappings
+control_flow_tasks:
+
+  ExecuteSQLTask:
+    target: sql_task
+    confidence: high
+    description: "Execute SQL statement in Databricks SQL warehouse"
+    databricks_config:
+      task_type: sql_task
+      requires_warehouse: true
+    notes: "Direct mapping - SQL syntax may need dialect conversion"
+
+  DataFlowTask:
+    target: notebook_task
+    confidence: high
+    description: "Data flow pipeline becomes PySpark notebook"
+    databricks_config:
+      task_type: notebook_task
+      requires_cluster: true
+    notes: "Complex - requires parsing internal pipeline components"
+    requires_subanalysis: true
+
+  ExecutePackageTask:
+    target: run_job_task
+    confidence: high
+    description: "Child package becomes separate job, called via run_job_task"
+    databricks_config:
+      task_type: run_job_task
+    notes: "Package must be converted first and deployed as separate job"
+
+  SendMailTask:
+    target: notification
+    confidence: high
+    description: "Email notification via job settings or webhook"
+    databricks_config:
+      use_job_notifications: true
+      alternative: webhook_task
+    notes: "Map to email_notifications in job definition"
+
+  FileSystemTask:
+    target: notebook_task
+    confidence: medium
+    description: "File operations via dbutils.fs"
+    databricks_config:
+      task_type: notebook_task
+    patterns:
+      copy_file: "dbutils.fs.cp(source, dest)"
+      move_file: "dbutils.fs.mv(source, dest)"
+      delete_file: "dbutils.fs.rm(path)"
+      create_directory: "dbutils.fs.mkdirs(path)"
+    notes: "Convert paths from Windows/UNC to cloud storage paths"
+
+  FTPTask:
+    target: notebook_task
+    confidence: medium
+    description: "FTP operations via Python libraries"
+    databricks_config:
+      task_type: notebook_task
+      requires_library: ["paramiko", "ftplib"]
+    notes: "Credentials should be stored in Databricks Secrets"
+    requires_secrets: true
+
+  ScriptTask:
+    target: notebook_task
+    confidence: low
+    description: "C#/VB.NET script requires manual conversion to Python"
+    databricks_config:
+      task_type: notebook_task
+    notes: "Requires Claude API assistance for code conversion"
+    flags:
+      - manual_review_required
+      - claude_assisted
+
+  # Containers
+  SequenceContainer:
+    target: task_group
+    confidence: high
+    description: "Group of tasks with shared execution context"
+    databricks_config:
+      use_task_dependencies: true
+    notes: "Flatten into tasks with appropriate dependencies"
+
+  ForLoopContainer:
+    target: for_each_task
+    confidence: medium
+    description: "Loop converted to for_each with generated iteration values"
+    databricks_config:
+      task_type: for_each_task
+    notes: "Loop bounds must be pre-computed"
+
+  ForEachLoopContainer:
+    target: for_each_task
+    confidence: high
+    description: "Native for_each task in Databricks Jobs"
+    databricks_config:
+      task_type: for_each_task
+    notes: "Enumerator type determines iteration source"
+
+
+# Data Flow Component Mappings
+data_flow_components:
+
+  # Sources
+  OLEDBSource:
+    target: spark_read
+    confidence: high
+    description: "Read from database via JDBC or Unity Catalog"
+    spark_pattern: |
+      spark.read.format("jdbc")
+        .option("url", jdbc_url)
+        .option("query", sql_query)
+        .load()
+    alternative: "spark.table('catalog.schema.table')"
+    notes: "Prefer Unity Catalog external tables over direct JDBC"
+
+  FlatFileSource:
+    target: spark_read_csv
+    confidence: high
+    description: "Read CSV/delimited files"
+    spark_pattern: |
+      spark.read.format("csv")
+        .option("header", has_header)
+        .option("delimiter", delimiter)
+        .schema(schema)
+        .load(file_path)
+
+  ExcelSource:
+    target: spark_read_excel
+    confidence: medium
+    description: "Read Excel files"
+    spark_pattern: |
+      spark.read.format("com.crealytics.spark.excel")
+        .option("header", "true")
+        .load(file_path)
+    requires_library: ["com.crealytics:spark-excel"]
+
+  XMLSource:
+    target: spark_read_xml
+    confidence: medium
+    description: "Read XML files"
+    spark_pattern: |
+      spark.read.format("xml")
+        .option("rowTag", row_tag)
+        .load(file_path)
+    requires_library: ["com.databricks:spark-xml"]
+
+  # Transformations
+  Lookup:
+    target: join
+    confidence: high
+    description: "Join with reference table"
+    spark_pattern: |
+      df.join(
+        broadcast(lookup_df),  # For small lookup tables
+        on=join_keys,
+        how="left"
+      )
+    notes: "Use broadcast() for dimension tables < 10MB"
+
+  DerivedColumn:
+    target: withColumn
+    confidence: high
+    description: "Add or replace columns with expressions"
+    spark_pattern: |
+      df.withColumn("new_col", expression)
+    notes: "SSIS expressions need conversion to Spark SQL"
+
+  ConditionalSplit:
+    target: filter
+    confidence: high
+    description: "Route rows based on conditions"
+    spark_pattern: |
+      df_output1 = df.filter(condition1)
+      df_output2 = df.filter(condition2)
+      df_default = df.filter(~condition1 & ~condition2)
+    notes: "Each output becomes a separate DataFrame"
+
+  Aggregate:
+    target: groupBy_agg
+    confidence: high
+    description: "Aggregate data with grouping"
+    spark_pattern: |
+      df.groupBy(group_cols).agg(
+        sum("col1").alias("sum_col1"),
+        count("*").alias("row_count"),
+        countDistinct("col2").alias("unique_col2")
+      )
+
+  Sort:
+    target: orderBy
+    confidence: high
+    description: "Sort data"
+    spark_pattern: |
+      df.orderBy(col("sort_col").asc())
+    notes: "Warning: Full sort is expensive in Spark - avoid if possible"
+    performance_warning: true
+
+  UnionAll:
+    target: union
+    confidence: high
+    description: "Combine multiple data streams"
+    spark_pattern: |
+      df1.unionByName(df2, allowMissingColumns=True)
+
+  Multicast:
+    target: cache
+    confidence: high
+    description: "Reuse DataFrame in multiple downstream operations"
+    spark_pattern: |
+      cached_df = df.cache()
+      # Use cached_df in multiple operations
+    notes: "Cache DataFrame and reuse"
+
+  RowCount:
+    target: count
+    confidence: high
+    description: "Count rows for metrics"
+    spark_pattern: |
+      row_count = df.count()
+    notes: "Use Spark accumulators for streaming counts"
+
+  MergeJoin:
+    target: join
+    confidence: high
+    description: "Sorted merge join"
+    spark_pattern: |
+      df1.join(df2, on=join_keys, how=join_type)
+    notes: "Spark handles join strategy automatically"
+
+  DataConversion:
+    target: cast
+    confidence: high
+    description: "Convert data types"
+    spark_pattern: |
+      df.withColumn("col", col("col").cast("target_type"))
+
+  # SCD Components
+  SlowlyChangingDimension:
+    target: delta_merge
+    confidence: high
+    description: "SCD Type 1/2 via Delta Lake MERGE"
+    spark_pattern: |
+      from delta.tables import DeltaTable
+
+      delta_table = DeltaTable.forName(spark, "dim.table")
+      delta_table.alias("t").merge(
+        source_df.alias("s"),
+        "t.business_key = s.business_key AND t.is_current = true"
+      ).whenMatchedUpdate(
+        condition="hash(t.type2_cols) != hash(s.type2_cols)",
+        set={"is_current": "false", "end_date": "current_timestamp()"}
+      ).whenNotMatched().insertAll()
+      .execute()
+    notes: "Perfect fit for Delta Lake - handles Type 1 and Type 2"
+
+  OLEDBCommand:
+    target: foreach_batch
+    confidence: medium
+    description: "Row-by-row updates - use MERGE instead"
+    spark_pattern: |
+      # Prefer batch MERGE over row-by-row updates
+      delta_table.merge(...)
+    notes: "Anti-pattern - convert to batch MERGE operations"
+
+  # Destinations
+  OLEDBDestination:
+    target: delta_write
+    confidence: high
+    description: "Write to Delta Lake table"
+    spark_pattern: |
+      df.write.format("delta")
+        .mode("append")  # or "overwrite"
+        .option("mergeSchema", "true")
+        .saveAsTable("catalog.schema.table")
+
+  FlatFileDestination:
+    target: csv_write
+    confidence: high
+    description: "Write to CSV file"
+    spark_pattern: |
+      df.write.format("csv")
+        .option("header", "true")
+        .mode("overwrite")
+        .save(file_path)
+
+
+# Special handling components
+special_handling:
+
+  ScriptComponent:
+    action: extract_and_convert
+    confidence: low
+    description: "Custom .NET code in data flow"
+    notes: "Extract code, use Claude API for Python conversion"
+    flags:
+      - manual_review_required
+      - claude_assisted
+
+  FuzzyLookup:
+    target: custom_udf
+    confidence: low
+    description: "No direct equivalent - implement with similarity functions"
+    notes: "Consider Levenshtein distance or ML-based matching"
+    alternatives:
+      - soundex
+      - levenshtein
+      - ml_model
+
+  FuzzyGrouping:
+    target: custom_udf
+    confidence: low
+    description: "No direct equivalent - custom deduplication logic"
+    notes: "Implement with similarity clustering"
+
+  TermLookup:
+    target: broadcast_join
+    confidence: medium
+    description: "Term extraction via broadcast join with term table"
+
+
+# Precedence Constraint Mappings
+precedence_constraints:
+
+  Success:  # Value = 0
+    target: depends_on
+    databricks_config:
+      outcome: null  # Default is success
+
+  Failure:  # Value = 1
+    target: depends_on
+    databricks_config:
+      outcome: "FAILED"
+
+  Completion:  # Value = 2
+    target: depends_on
+    databricks_config:
+      outcome: "ALL_DONE"
+
+  Expression:
+    target: condition_task
+    notes: "Evaluate expression in condition task before proceeding"
+
+
+# Event Handler Mappings
+event_handlers:
+
+  OnError:
+    target: job_notifications
+    databricks_config:
+      on_failure: true
+      email_notifications: true
+    alternative: "try/except in notebook with error logging"
+
+  OnPreExecute:
+    target: notebook_init
+    notes: "Move to notebook initialization section"
+
+  OnPostExecute:
+    target: notebook_cleanup
+    notes: "Move to notebook finally block"

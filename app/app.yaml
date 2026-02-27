@@ -1,0 +1,96 @@
+# Conversion Control Tower — Databricks App Configuration
+# Job IDs and warehouse ID must be set after `databricks bundle deploy`
+# See DEPLOYMENT.md for setup instructions
+
+command: ["python", "start.py"]
+
+env:
+  # Workspace configuration (auto-injected by Databricks Apps)
+  - name: DATABRICKS_HOST
+    valueFrom: workspace-host
+
+  # Unity Catalog settings for tracking tables
+  - name: CATALOG
+    value: "dev_conversion_tracker"
+
+  - name: SCHEMA
+    value: "conversion_tracker"
+
+  # Source data catalog (synthetic test data or federated)
+  - name: SOURCE_CATALOG
+    value: "dev_conversion_tracker"
+
+  - name: SOURCE_SCHEMA
+    value: "source_data"
+
+  # SQL Warehouse — bound via resources below
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+
+  # AI model endpoint for intelligent conversion
+  - name: AI_MODEL_ENDPOINT
+    value: "databricks-claude-sonnet-4"
+
+  # ---------------------------------------------------------------
+  # Job IDs — UPDATE THESE after `databricks bundle deploy`
+  # Run `databricks bundle summary --target dev` to find deployed job IDs
+  # ---------------------------------------------------------------
+  - name: CONVERSION_JOB_ID
+    value: ""
+
+  - name: ORIGINAL_SIMULATOR_JOB_ID
+    value: ""
+
+  - name: CONVERTED_RUNNER_JOB_ID
+    value: ""
+
+  - name: DATA_COMPARATOR_JOB_ID
+    value: ""
+
+  # Optional: Enable for Lakehouse Federation to source systems
+  # - name: FEDERATED_CATALOG
+  #   value: "sqlserver_federated"
+
+# Resources bound to this app
+resources:
+  # SQL Warehouse for queries and data access
+  - name: sql-warehouse
+    type: sql-warehouse
+    # UPDATE: Set your SQL Warehouse ID here
+    sql_warehouse_id: ""
+
+  # AI Model for conversion assistance (primary)
+  - name: ai-model
+    type: serving-endpoint
+    endpoint_name: databricks-claude-sonnet-4
+
+  # AI Model for fast summarization
+  - name: haiku-model
+    type: serving-endpoint
+    endpoint_name: databricks-claude-haiku-4-5
+
+  # Conversion runner job
+  - name: conversion-job
+    type: job
+    # UPDATE: Set after bundle deploy
+    job_id: ""
+
+  # Validation pipeline jobs
+  - name: original-simulator-job
+    type: job
+    job_id: ""
+
+  - name: converted-runner-job
+    type: job
+    job_id: ""
+
+  - name: data-comparator-job
+    type: job
+    job_id: ""
+
+# OBO token permissions (what the app can do on behalf of the logged-in user)
+permissions:
+  - sql        # Execute SQL queries via warehouse
+  - files      # Read/write UC Volumes
+  - serving    # Call model serving endpoints
+  - jobs       # Create and manage Databricks Jobs
